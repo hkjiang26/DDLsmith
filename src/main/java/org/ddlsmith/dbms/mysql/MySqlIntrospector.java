@@ -416,6 +416,15 @@ public class MySqlIntrospector extends AbstractIntrospector {
      * constraint name alone left the indexes in place. DDLSmith's own indexes are always named
      * {@code idx_}, {@code uidx_} or {@code ev_idx_}, so neither shape can be one of them, and an index
      * the engine really did create for DDLSmith is still reported.</p>
+     *
+     * <p>The first referencing column's name is not free either: when another index already carries it,
+     * InnoDB appends a counter, so a foreign key on {@code (e0_dst_a0, e0_dst_a2)} whose first column
+     * already has a {@code UNIQUE} index arrives as {@code e0_dst_a0_2}. Measured on the live server
+     * with exactly that table — the catalog then holds {@code e0_dst_a0} (the unique constraint) and
+     * {@code e0_dst_a0_2} (the foreign key's). Matching the bare column name alone therefore left this
+     * one in place, and the differential oracle reported {@code MISSING_INDEX at t_0.idx([e0_dst_a0,
+     * e0_dst_a2])} — PostgreSQL, which creates no such index, was right and MySQL's extra index was an
+     * implementation detail.</p>
      */
     private static boolean isForeignKeyIndex(Index index, Table table) {
         List<String> columns = new ArrayList<>();
@@ -437,8 +446,10 @@ public class MySqlIntrospector extends AbstractIntrospector {
             if (!referencing.equals(columns)) {
                 continue;
             }
+            String firstColumn = foreignKey.getColumns().get(0);
             if (name.equalsIgnoreCase(foreignKey.getName())
-                    || name.equalsIgnoreCase(foreignKey.getColumns().get(0))) {
+                    || name.equalsIgnoreCase(firstColumn)
+                    || name.matches("(?i)" + java.util.regex.Pattern.quote(firstColumn) + "_\\d+")) {
                 return true;
             }
         }

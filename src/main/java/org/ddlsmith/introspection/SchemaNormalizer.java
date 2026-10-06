@@ -739,6 +739,20 @@ public final class SchemaNormalizer {
         // column too. The word boundaries keep it to the literals.
         result = result.replaceAll("\\btrue\\b", "1");
         result = result.replaceAll("\\bfalse\\b", "0");
+        // PostgreSQL rewrites a multi-element IN list into an ANY over an array: the discriminator
+        // check `dtype IN ('E2', 'E0')` comes back from pg_get_expr as
+        // `dtype = ANY (ARRAY['E2'::text, 'E0'::text])`, which arrives here as
+        // `dtype = any ((array'e2', 'e0'))` — the casts and the brackets are gone by now, and the
+        // constructor keeps a pair of parentheses of its own. This has to run before the one-element
+        // rules below, so that a single-value ANY folds to the same equality a one-element IN list
+        // does.
+        result = ANY_OVER_ARRAY.matcher(result).replaceAll(match -> {
+            String list = match.group(2).trim();
+            while (list.startsWith("(") && list.endsWith(")") && balanced(list.substring(1, list.length() - 1))) {
+                list = list.substring(1, list.length() - 1).trim();
+            }
+            return match.group(1) + " in (" + list.replaceFirst("^array\\s*", "") + ")";
+        });
         // a one-element IN list is the same predicate as an equality, and engines rewrite it
         result = result.replaceAll("\\bnot\\s+in\\s*\\(\\s*([^,()]+?)\\s*\\)", "!= $1");
         result = result.replaceAll("\\bin\\s*\\(\\s*([^,()]+?)\\s*\\)", "= $1");
@@ -748,6 +762,17 @@ public final class SchemaNormalizer {
         // here. Without this, every single-table ISA hierarchy with two or more subtypes was
         // reported as a lost CHECK constraint on H2 (six databases of one 32-database run).
         result = result.replaceAll("\\bin\\s*\\(", "in (");
+        // The separator of a list is not part of the predicate either, and the engines disagree
+        // about the space after it: MySQL reports the discriminator check declared as
+        // `dtype IN ('E1', 'E0')` back as `(`dtype` in (_utf8mb4\'E1\',_utf8mb4\'E0\'))` — the
+        // bytes between the two literals are `5C 27 2C 5F`, i.e. a quote, a comma and the next
+        // introducer, with no space. The model writes `', '`. Comparing the two texts reported a
+        // lost CHECK constraint on every single-table ISA hierarchy whose discriminator lists more
+        // than one value, which is every partial specialization (it lists the root as well) — 101 of
+        // the 104 failure logs of one five-minute MySQL round. The other three are one more DDLSmith
+        // gap (the suffixed name InnoDB gives a foreign key's index) and two of the documented
+        // self-referencing deviation, so 102 of the 104 were the tool's own defects.
+        result = normalizeListSeparators(result);
         // unquote simple identifiers used in expressions (engines differ in how they quote them)
         result = result.replaceAll("\\s+", " ");
         result = normalizeDecimalLiterals(result);
@@ -766,6 +791,14 @@ public final class SchemaNormalizer {
             java.util.regex.Pattern.compile("(?<![A-Za-z0-9_.])(\\d+)\\.(\\d+)(?![A-Za-z0-9_])");
 
     /**
+     * PostgreSQL's spelling of an {@code IN} list: {@code <column> = ANY (<list>)}. The list is
+     * captured with its own parentheses balanced one level deep, because the array constructor keeps a
+     * pair of them ({@code ((array'e2', 'e0'))}) and a flat character class would stop at the first.
+     */
+    private static final java.util.regex.Pattern ANY_OVER_ARRAY =
+            java.util.regex.Pattern.compile("([a-z_][a-z0-9_]*)\\s*=\\s*any\\s*\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)");
+
+    /**
      * Trims the trailing zeros of a decimal literal, so that a value an engine reformats still compares
      * equal: MySQL reports the default of a {@code DECIMAL(10,2)} column declared as {@code 0} back as
      * {@code 0.00}, which the round-trip oracle otherwise reports as a lost default. Only a literal
@@ -781,6 +814,41 @@ public final class SchemaNormalizer {
                     fraction.isEmpty() ? digits : digits + "." + fraction));
         }
         matcher.appendTail(result);
+        return result.toString();
+    }
+
+    /**
+     * Removes the whitespace around a list separator, so that {@code ('a', 'b')} and {@code ('a','b')}
+     * are the same predicate.
+     *
+     * <p>This cannot be a plain {@code replaceAll("\\s*,\\s*", ",")}: a comma inside a string literal
+     * is part of the value ({@code name <> 'Smith, John'}), and rewriting it would make two genuinely
+     * different constraints compare equal. The scan therefore tracks single-quoted literals, in which
+     * a doubled quote is an escaped quote and so ends and restarts the literal — which is exactly what
+     * toggling on every quote does.</p>
+     */
+    private static String normalizeListSeparators(String expression) {
+        StringBuilder result = new StringBuilder(expression.length());
+        boolean inLiteral = false;
+        for (int i = 0; i < expression.length(); i++) {
+            char current = expression.charAt(i);
+            if (current == '\'') {
+                inLiteral = !inLiteral;
+                result.append(current);
+                continue;
+            }
+            if (inLiteral || current != ',') {
+                result.append(current);
+                continue;
+            }
+            while (result.length() > 0 && result.charAt(result.length() - 1) == ' ') {
+                result.setLength(result.length() - 1);
+            }
+            result.append(',');
+            while (i + 1 < expression.length() && expression.charAt(i + 1) == ' ') {
+                i++;
+            }
+        }
         return result.toString();
     }
 

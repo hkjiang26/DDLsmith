@@ -188,6 +188,51 @@ class SchemaNormalizerTest {
                 SchemaNormalizer.canonicalExpression("a1 NOT IN('x', 'y')"));
     }
 
+    /**
+     * The space after a list separator is not part of the predicate, and the engines disagree about it:
+     * MySQL reports {@code dtype IN ('E1', 'E0')} back as
+     * {@code (`dtype` in (_utf8mb4\'E1\',_utf8mb4\'E0\'))} — the bytes between the literals are
+     * {@code 5C 27 2C 5F}, a quote, a comma and the next introducer, with no space. Only a
+     * multi-element list is affected, which is why this stayed invisible until a partial
+     * specialization started listing the root's own discriminator value as well. It produced 101 of
+     * the 104 failure logs of one five-minute MySQL round, every one of them a lost CHECK constraint
+     * that had not been lost.
+     */
+    @Test
+    void tolerantOfTheSpacingMySqlUsesForInLists() {
+        assertEquals(SchemaNormalizer.canonicalExpression("dtype IN ('E1', 'E0')"),
+                SchemaNormalizer.canonicalExpression("(`dtype` in (_utf8mb4\\'E1\\',_utf8mb4\\'E0\\'))"));
+        assertEquals(SchemaNormalizer.canonicalExpression("a1 IN (1, 2, 3)"),
+                SchemaNormalizer.canonicalExpression("(a1 in (1,2,3))"));
+    }
+
+    /**
+     * PostgreSQL rewrites a multi-element IN list into an ANY over an array, so the differential
+     * oracle saw two engines disagree about a constraint they had both created:
+     * {@code dtype = ANY (ARRAY['E2'::text, 'E0'::text])} against MySQL's {@code in ('e2','e0')}.
+     */
+    @Test
+    void tolerantOfPostgresRewritingAnInListAsAnyOverAnArray() {
+        assertEquals(SchemaNormalizer.canonicalExpression("dtype IN ('E2', 'E0')"),
+                SchemaNormalizer.canonicalExpression("dtype = ANY (ARRAY['E2'::text, 'E0'::text])"));
+        // and a one-element ANY is the same equality a one-element IN list folds to
+        assertEquals(SchemaNormalizer.canonicalExpression("dtype IN ('E2')"),
+                SchemaNormalizer.canonicalExpression("dtype = ANY (ARRAY['E2'::text])"));
+    }
+
+    /**
+     * The separator rule must not reach inside a string literal: a comma there is part of the value,
+     * and rewriting it would make two genuinely different constraints compare equal.
+     */
+    @Test
+    void theSeparatorRuleKeepsCommasInsideStringLiterals() {
+        assertFalse(SchemaNormalizer.canonicalExpression("name <> 'Smith, John'")
+                        .equals(SchemaNormalizer.canonicalExpression("name <> 'Smith,John'")),
+                "a comma inside a literal is part of the value and must stay significant");
+        assertEquals(SchemaNormalizer.canonicalExpression("name IN ('Smith, John', 'Doe')"),
+                SchemaNormalizer.canonicalExpression("name IN ('Smith, John','Doe')"));
+    }
+
     @Test
     void strictAboutTypeNamesWithinOneEngine() {
         RelationalSchema intended = sample();

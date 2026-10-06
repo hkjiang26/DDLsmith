@@ -953,9 +953,130 @@ public final class SelfCheck {
             checkCheckOnReferentialActionColumnRule(dbConnection);
             checkStoredGeneratedColumnRule(dbConnection);
             checkSelfReferentialCascadeRule(dbConnection);
+            checkForeignKeyIndexNamingRule(introspector, dbConnection);
+            checkForeignKeyIndexRebindingRule(dbConnection);
         } catch (SQLException e) {
             checks++;
             FAILURES.add("live round trip failed: " + e.getClass().getSimpleName() + ": " + oneLine(e.getMessage()));
+        }
+    }
+
+    /**
+     * Pins the name InnoDB gives the index it creates for a foreign key, and that the introspector
+     * therefore leaves it out of the schema.
+     *
+     * <p>InnoDB needs an index over a foreign key's referencing columns and creates one when the schema
+     * does not provide it, while PostgreSQL creates none — so one declared schema produced an index on
+     * MySQL and none on PostgreSQL, and the differential oracle reported it as a missing index. What
+     * identifies the index is its name: after the constraint when the foreign key was named, and after
+     * the first referencing column when it was not. The second shape has a second case that the
+     * recognition rule missed: when another index already carries that column's name, InnoDB appends a
+     * counter. Measured on the live server with a foreign key on {@code (x, y)} whose first column
+     * already has a {@code UNIQUE} index: the catalog holds {@code x} (the unique constraint) and
+     * {@code x_2} (the foreign key's), and the differential oracle reported
+     * {@code MISSING_INDEX at t_0.idx([e0_dst_a0, e0_dst_a2])} in a 60-minute round because only the
+     * bare column name was matched.</p>
+     *
+     * <p>The control matters as much as the rule: an index DDLSmith really asked for must still be
+     * reported, or the fix would be "drop every index that sits on a foreign key's columns".</p>
+     */
+    private static void checkForeignKeyIndexNamingRule(MySqlIntrospector introspector,
+            DDLSmithDBConnection connection) throws SQLException {
+        System.out.println();
+        System.out.println("-- the index InnoDB creates for a foreign key --");
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE DATABASE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE TABLE t (a DATE NOT NULL, b CHAR(5) NOT NULL, x DATE, y CHAR(5), "
+                + "PRIMARY KEY (a, b), UNIQUE (x), FOREIGN KEY (x, y) REFERENCES t (a, b))");
+        connection.executeStatement("CREATE INDEX idx_t_0 ON t (b)");
+        Object raw = connection.executeAndGet("SELECT GROUP_CONCAT(index_name ORDER BY index_name) "
+                + "FROM information_schema.statistics WHERE table_schema = '" + RULE_PROBE_DATABASE
+                + "' AND table_name = 't'").getValue(0, 0);
+        System.out.println("  index names in the catalog: " + raw);
+        assertTrue("InnoDB suffixes the foreign key's index name with a counter when the first "
+                + "referencing column's name is already taken by another index (catalog: " + raw + ")",
+                String.valueOf(raw).contains("x_2"));
+
+        RelationalSchema actual = introspector.introspect(connection, RULE_PROBE_DATABASE);
+        Table table = actual.getTable("t");
+        List<String> reported = new ArrayList<>();
+        for (Index index : table.getIndexes()) {
+            reported.add(index.getName());
+        }
+        System.out.println("  indexes the introspector reports: " + reported);
+        for (String name : reported) {
+            assertTrue("the index InnoDB created for the foreign key (" + name + ") is not part of what "
+                    + "the schema declared", !name.equalsIgnoreCase("x") && !name.equalsIgnoreCase("x_2"));
+        }
+        assertTrue("an index DDLSmith really created is still reported (reported: " + reported + ")",
+                reported.contains("idx_t_0"));
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + LIVE_DATABASE);
+    }
+
+    /**
+     * Pins the foreign key MySQL stops enforcing after an index is created over two foreign key
+     * columns — the one engine defect this project found rather than caused.
+     *
+     * <p>Measured on 26.7.0. With two foreign keys on the same child table and an index whose leading
+     * columns are those two key columns, an insert that leaves the <em>second</em> indexed column NULL
+     * is no longer checked against the <em>first</em> foreign key: the row is stored with a dangling
+     * reference. Every catalog still reports the constraint — {@code TABLE_CONSTRAINTS},
+     * {@code REFERENTIAL_CONSTRAINTS}, {@code KEY_COLUMN_USAGE} and InnoDB's own
+     * {@code INNODB_FOREIGN} — and InnoDB even refuses to drop the index that "is needed in a foreign
+     * key constraint", so the catalog cannot be used to detect it. That is the failure mode DDLSmith
+     * exists to find: a constraint that is parsed, stored and never enforced.</p>
+     *
+     * <p>The probe asserts the defect rather than the standard, so that a MySQL version which starts
+     * enforcing the constraint fails this self-check and says so, instead of the
+     * {@code constraint-enforcement} oracle silently going quiet. The controls keep the assertion from
+     * passing for the wrong reason: the same dangling value with a non-NULL second column is rejected
+     * both before and after the index, and a dangling <em>second</em> column is rejected after it.</p>
+     */
+    private static void checkForeignKeyIndexRebindingRule(DDLSmithDBConnection connection) throws SQLException {
+        System.out.println();
+        System.out.println("-- foreign key enforcement after an index over two key columns --");
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE DATABASE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE TABLE p1 (k INT NOT NULL, PRIMARY KEY (k))");
+        connection.executeStatement("CREATE TABLE p2 (k INT NOT NULL, PRIMARY KEY (k))");
+        connection.executeStatement("CREATE TABLE c (id INT NOT NULL, f1 INT, f2 INT, PRIMARY KEY (id), "
+                + "CONSTRAINT c1 FOREIGN KEY (f1) REFERENCES p1 (k), "
+                + "CONSTRAINT c2 FOREIGN KEY (f2) REFERENCES p2 (k))");
+        connection.executeStatement("INSERT INTO p1 VALUES (1)");
+        connection.executeStatement("INSERT INTO p2 VALUES (1)");
+        assertEquals("before the index, a dangling f1 with a NULL f2 is rejected (1452)", 1452,
+                errorCodeOf(connection, "INSERT INTO c VALUES (10, 999, NULL)"));
+        connection.executeStatement("CREATE INDEX i ON c (f1, f2)");
+        Integer danglingWithNull = errorCodeOf(connection, "INSERT INTO c VALUES (11, 999, NULL)");
+        System.out.println("  after CREATE INDEX i ON c (f1, f2), a dangling f1 with f2 NULL -> "
+                + (danglingWithNull == null ? "accepted (the foreign key is not enforced)" : "refused " + danglingWithNull));
+        assertEquals("MySQL 26.7.0 does not enforce the first foreign key for a row whose second key "
+                + "column is NULL once an index covers both key columns; a version that starts enforcing "
+                + "it makes this assertion fail, which is the point", null, danglingWithNull);
+        assertEquals("the control: the same dangling value with a non-NULL f2 is still rejected (1452)", 1452,
+                errorCodeOf(connection, "INSERT INTO c VALUES (12, 999, 1)"));
+        assertEquals("the control: a dangling f2 is still rejected (1452)", 1452,
+                errorCodeOf(connection, "INSERT INTO c VALUES (13, NULL, 999)"));
+        Object stored = connection.executeAndGet("SELECT COUNT(*) FROM c WHERE f1 = 999").getValue(0, 0);
+        System.out.println("  rows stored with a dangling f1: " + stored);
+        assertEquals("the row with the dangling reference really is in the table", 1L,
+                stored instanceof Number ? ((Number) stored).longValue() : stored);
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + LIVE_DATABASE);
+    }
+
+    /** @return the error code the server answered with, or {@code null} when it accepted the statement */
+    private static Integer errorCodeOf(DDLSmithDBConnection connection, String sql) {
+        try {
+            connection.executeStatement(sql);
+            return null;
+        } catch (SQLException e) {
+            return e.getErrorCode();
         }
     }
 
