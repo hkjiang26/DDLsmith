@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# DDLSmith line-ending policy
+#
+# Every text file is stored and checked out as LF, which is what the working
+# tree already uses. This is stated here rather than left to core.autocrlf
+# (set to true on this machine) so that a clone on any platform produces
+# identical bytes. LF is handled correctly by pwsh, Windows PowerShell, the
+# JDK and Maven, so no file needs a special case.
+# ---------------------------------------------------------------------------
+
+* text=auto eol=lf
+
+# Binary assets are never converted.
+*.jar binary
+*.db binary
+*.duckdb binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.pdf binary

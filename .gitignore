@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# DDLSmith
+#
+# Tracked on purpose (do NOT add rules for these):
+#   src/, docs/            sources, the design/ER/acceptance documents, and the
+#                          research probes under docs/er_features/
+#   bugs/                  the curated defect reports: one file per distinct
+#                          defect plus bugs/INDEX.md. This is a result, not a
+#                          by-product, so it is versioned even though runs
+#                          accumulate into it.
+#   config.json            the default connection settings the README documents
+#   runs/*.ps1             the acceptance-campaign harness scripts
+# ---------------------------------------------------------------------------
+
+# --- Build output ----------------------------------------------------------
+target/
+*.class
+dependency-reduced-pom.xml
+
+# --- Run output ------------------------------------------------------------
+# Failure logs and --log-each-select traces.
+logs/
+
+# Campaign scratch space: one directory per acceptance round, each holding its
+# chunk logs, per-chunk bug directories and the embedded databases it created.
+# Hundreds of MB per round, all of it regenerable from a seed.
+# The harness scripts that drive the rounds sit at the top level and are kept.
+runs/*
+!runs/*.ps1
+
+# Every generated DDL script (--ddl-dump-dir) and exported ER diagram.
+*-ddl-dump/
+*.ddl-dump/
+
+# --- Embedded databases ----------------------------------------------------
+# SQLite *.db, DuckDB *.duckdb, H2 *.mv.db / *.trace.db, plus their journals.
+*.db
+*.duckdb
+*.db-journal
+*.db-wal
+*.db-shm
+*.duckdb.wal
+
+# --- Logs ------------------------------------------------------------------
+*.log
+hs_err_pid*.log
+replay_pid*.log
+
+# --- IDE / editor ----------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+*.swp
+*~
+
+# --- OS --------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Python (the research scripts under docs/er_features) ------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/

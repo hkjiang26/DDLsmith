@@ -1,0 +1,59 @@
+package org.ddlsmith.ddl;
+
+/**
+ * A DDL capability that an engine may or may not support. Generators gate the features they emit
+ * on the feature set of the target dialect, so that the same ER diagram can be mapped to DDL for
+ * engines with very different capabilities.
+ */
+public enum DDLFeature {
+
+    /* ---- identifiers and namespaces ---- */
+    CREATE_SCHEMA, CREATE_SCHEMA_IF_NOT_EXISTS, DROP_SCHEMA, DROP_SCHEMA_CASCADE, QUALIFIED_NAMES,
+    IF_NOT_EXISTS, DROP_IF_EXISTS, CASCADE_DROP, TEMPORARY_TABLE,
+
+    /* ---- table level constraints ---- */
+    COMPOSITE_PRIMARY_KEY, NAMED_PRIMARY_KEY, COMPOSITE_FOREIGN_KEY, COMPOSITE_UNIQUE, NAMED_UNIQUE,
+    UNIQUE_CONSTRAINT, NAMED_CHECK, SELF_REFERENTIAL_FK, NAMED_FOREIGN_KEY, TABLE_LEVEL_FOREIGN_KEY,
+    INLINE_FOREIGN_KEY, INLINE_UNIQUE, INLINE_CHECK, COLUMN_LEVEL_PRIMARY_KEY,
+
+    /* ---- referential actions ---- */
+    FK_ON_DELETE, FK_ON_UPDATE, FK_CASCADE, FK_SET_NULL, FK_SET_DEFAULT, FK_RESTRICT,
+    DEFERRABLE_FK, INITIALLY_DEFERRED, MATCH_FULL, FK_ENFORCED_BY_DEFAULT, FK_ENFORCED_BY_PRAGMA,
+    /**
+     * The engine validates that a foreign key's target table already exists when the referencing
+     * table is created. Engines without this behaviour (SQLite) accept forward references, so a
+     * reference cycle between two tables needs no special handling there. Where it is set, DDLSmith
+     * creates the referencing table without the cycle-closing foreign key and adds it afterwards
+     * with {@code ALTER TABLE}, or drops it when the engine cannot add constraints after creation.
+     */
+    FK_TARGET_MUST_EXIST,
+
+    /* ---- column definitions ---- */
+    DEFAULT_LITERAL, DEFAULT_EXPRESSION, DEFAULT_CURRENT_TIMESTAMP, NOT_NULL_COLUMN,
+    IDENTITY_COLUMN, AUTO_INCREMENT, SERIAL, GENERATED_COLUMN, GENERATED_STORED, GENERATED_VIRTUAL,
+    COLLATION, COLUMN_COMMENT, TABLE_COMMENT, COLUMN_TYPE_UNSIGNED, NULLS_DISTINCT,
+
+    /* ---- ALTER TABLE ---- */
+    ALTER_ADD_COLUMN, ALTER_ADD_COLUMN_IF_NOT_EXISTS, ALTER_DROP_COLUMN, ALTER_DROP_COLUMN_CASCADE,
+    ALTER_RENAME_COLUMN, ALTER_RENAME_TABLE, ALTER_COLUMN_TYPE, ALTER_COLUMN_TYPE_USING,
+    ALTER_SET_NOT_NULL, ALTER_DROP_NOT_NULL, ALTER_SET_DEFAULT, ALTER_DROP_DEFAULT,
+    ALTER_ADD_CONSTRAINT, ALTER_DROP_CONSTRAINT, ALTER_DROP_CONSTRAINT_IF_EXISTS,
+    ALTER_ADD_PRIMARY_KEY, ALTER_DROP_PRIMARY_KEY, ALTER_ADD_FOREIGN_KEY, ALTER_DROP_FOREIGN_KEY,
+    ALTER_ADD_UNIQUE, ALTER_ADD_CHECK, ALTER_MULTIPLE_ACTIONS,
+
+    /* ---- indexes ---- */
+    CREATE_INDEX, CREATE_UNIQUE_INDEX, CREATE_INDEX_IF_NOT_EXISTS, DROP_INDEX, DROP_INDEX_IF_EXISTS,
+    INDEX_NAME_QUALIFIED_BY_TABLE, INDEX_METHOD, EXPRESSION_INDEX, PARTIAL_INDEX, INCLUDE_COLUMNS,
+    INDEX_DESCENDING,
+
+    /* ---- views ---- */
+    CREATE_VIEW, CREATE_OR_REPLACE_VIEW, MATERIALIZED_VIEW, VIEW_CHECK_OPTION, VIEW_COLUMN_LIST,
+
+    /* ---- sequences and other objects ---- */
+    CREATE_SEQUENCE, DROP_SEQUENCE, SEQUENCE_OPTIONS, TRUNCATE_TABLE, TRUNCATE_CASCADE,
+
+    /* ---- types ---- */
+    TYPE_ARRAY, TYPE_JSON, TYPE_UUID, TYPE_ENUM, TYPE_TEXT, TYPE_BOOLEAN, TYPE_BLOB,
+    TYPE_NUMERIC_PRECISION, TYPE_CHAR_LENGTH, TYPE_TIMESTAMP, TYPE_TIMESTAMPTZ, TYPE_DATE, TYPE_TIME,
+    TYPE_INTERVAL, ENUM_AS_CHECK, TYPE_DOMAIN
+}

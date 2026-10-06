@@ -1,0 +1,116 @@
+package org.ddlsmith.algorithm.impl;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.ddlsmith.GlobalState;
+import org.ddlsmith.MainOptions;
+import org.ddlsmith.algorithm.AbstractTestingAlgorithm;
+import org.ddlsmith.algorithm.Pipeline;
+import org.ddlsmith.common.schema.RelationalSchema;
+import org.ddlsmith.ddl.DDLStatement;
+import org.ddlsmith.ddl.gen.RandomDDLGenerator;
+import org.ddlsmith.introspection.SchemaNormalizer;
+import org.ddlsmith.oracle.OracleContext;
+import org.ddlsmith.oracle.OracleContext.DatabaseUnderTest;
+import org.ddlsmith.oracle.OracleFailure;
+
+/**
+ * Focuses on schema evolution: it creates the schema, evolves it with random {@code ALTER TABLE}
+ * statements, and checks after every step that the database still matches the schema DDLSmith
+ * believes it has.
+ *
+ * <p>This turns the round-trip comparison into an incremental one, which pinpoints the exact
+ * {@code ALTER TABLE} statement that made the catalog diverge — much easier to act on than a single
+ * comparison at the end.</p>
+ */
+public class SchemaEvolutionAlgorithm extends AbstractTestingAlgorithm {
+
+    public SchemaEvolutionAlgorithm(MainOptions options) {
+        super(options);
+    }
+
+    @Override
+    public String getName() {
+        return "evolution";
+    }
+
+    @Override
+    public List<OracleFailure> test(GlobalState<?, ?> state) throws Exception {
+        Pipeline.Generated generated = Pipeline.generate(state, state.getDialect());
+        OracleContext context = newContext(state, generated);
+        DatabaseUnderTest primary = context.getPrimary();
+
+        executeCreateScript(context, primary, generated.adaptedSchema);
+
+        int steps = options.getEvolveSteps() > 0 ? options.getEvolveSteps()
+                : Math.max(1, options.getNumDdlStatements() / 4);
+        RandomDDLGenerator evolution = new RandomDDLGenerator(generated.adaptedSchema, state.getDialect(), options);
+
+        List<OracleFailure> failures = new ArrayList<>();
+        List<DDLStatement> history = new ArrayList<>();
+        for (int step = 0; step < steps; step++) {
+            DDLStatement statement = evolution.nextStatement().orElse(null);
+            if (statement == null) {
+                break;
+            }
+            history.add(statement);
+            org.ddlsmith.oracle.OracleContext.ExecutionEvent event = execute(context, primary, statement, "evolve");
+            if (!event.isSucceeded()) {
+                // The engine refused the statement, so its effect must not stay in the model: comparing
+                // the catalog with a schema that was never created reports the missing column or index
+                // as a divergence, which is a finding about DDLSmith rather than about the engine — and
+                // it hides the rejection itself, which is what the crash oracle is for. Rolling the
+                // model back keeps the two in step and lets the evolution continue from a state the
+                // engine really has.
+                evolution.discardLastStatement();
+                continue;
+            }
+            RelationalSchema expected = evolution.getCurrentSchema();
+            primary.setIntendedSchema(expected);
+            context.setIntendedSchema(expected);
+            List<org.ddlsmith.introspection.SchemaDifference> differences = compare(context, primary, expected);
+            if (!differences.isEmpty()) {
+                failures.add(new OracleFailure(OracleFailure.FailureKind.SCHEMA_MISMATCH, getName(),
+                        "schema diverged after " + statement.describe(),
+                        "After executing the ALTER TABLE statement below, the schema reported by the database no "
+                                + "longer matches the schema DDLSmith intended. This pinpoints the statement that "
+                                + "introduced the divergence.\n\n"
+                                + "Statement: " + statement.toSql(primary.getDialect()) + "\n\n"
+                                + "Preceding statements:\n" + renderHistory(history, primary) + "\n"
+                                + SchemaNormalizer.render(differences),
+                        renderHistory(history, primary), context.getSeed(), describeDatabases(context), null));
+                // stop this round: everything after the first divergence is noise
+                return failures;
+            }
+        }
+
+        failures.addAll(runOracles(context, state));
+        return failures;
+    }
+
+    private List<org.ddlsmith.introspection.SchemaDifference> compare(OracleContext context,
+            DatabaseUnderTest database, RelationalSchema expected) throws Exception {
+        RelationalSchema actual = database.getIntrospector().introspect(database.getConnection(),
+                expected.getName());
+        java.util.Set<org.ddlsmith.introspection.SchemaIntrospector.IntrospectionCapability> capabilities = new java.util.LinkedHashSet<>(
+                database.getIntrospector().getCapabilities());
+        capabilities.retainAll(java.util.EnumSet.allOf(
+                org.ddlsmith.introspection.SchemaIntrospector.IntrospectionCapability.class));
+        RelationalSchema erased = SchemaNormalizer.erase(expected, capabilities);
+        return SchemaNormalizer.diff(erased, actual,
+                SchemaNormalizer.preservesExactTypes(database.getDialect().getFeatures()),
+                capabilities.contains(
+                        org.ddlsmith.introspection.SchemaIntrospector.IntrospectionCapability.FOREIGN_KEY_ACTIONS));
+    }
+
+    private static String renderHistory(List<DDLStatement> history, DatabaseUnderTest database) {
+        StringBuilder sb = new StringBuilder();
+        for (DDLStatement statement : history) {
+            for (String sql : database.getDialect().renderAll(statement)) {
+                sb.append(sql).append(";\n");
+            }
+        }
+        return sb.toString();
+    }
+}
