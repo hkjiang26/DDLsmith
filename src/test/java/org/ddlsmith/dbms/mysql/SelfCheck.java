@@ -1017,54 +1017,66 @@ public final class SelfCheck {
     }
 
     /**
-     * Pins the foreign key MySQL stops enforcing after an index is created over two foreign key
-     * columns — the one engine defect this project found rather than caused.
+     * Pins the foreign key MySQL 26.7.0 stops enforcing once an index with a nullable column serves it —
+     * the one engine defect this project found rather than caused.
      *
-     * <p>Measured on 26.7.0. With two foreign keys on the same child table and an index whose leading
-     * columns are those two key columns, an insert that leaves the <em>second</em> indexed column NULL
-     * is no longer checked against the <em>first</em> foreign key: the row is stored with a dangling
-     * reference. Every catalog still reports the constraint — {@code TABLE_CONSTRAINTS},
-     * {@code REFERENTIAL_CONSTRAINTS}, {@code KEY_COLUMN_USAGE} and InnoDB's own
-     * {@code INNODB_FOREIGN} — and InnoDB even refuses to drop the index that "is needed in a foreign
-     * key constraint", so the catalog cannot be used to detect it. That is the failure mode DDLSmith
-     * exists to find: a constraint that is parsed, stored and never enforced.</p>
+     * <p>Measured on 26.7.0. A non-unique index whose leading column is a foreign key column becomes the
+     * index InnoDB enforces that foreign key with, and from then on a NULL in <em>any</em> column of that
+     * index satisfies the constraint — not just a NULL in the foreign key's own columns. The probe's
+     * second indexed column is not part of any foreign key at all, which is what makes the observation
+     * unambiguous: the foreign key is on {@code f1} alone, {@code f1 = 999} is non-NULL and has no
+     * parent, and only the unrelated column's NULL changes the outcome. Every catalog still reports the
+     * constraint — {@code TABLE_CONSTRAINTS}, {@code REFERENTIAL_CONSTRAINTS}, {@code KEY_COLUMN_USAGE}
+     * and InnoDB's own {@code INNODB_FOREIGN} — and InnoDB even refuses to drop the index that "is
+     * needed in a foreign key constraint", so the catalog cannot be used to detect it. That is the
+     * failure mode DDLSmith exists to find: a constraint that is parsed, stored and never enforced.</p>
      *
-     * <p>The probe asserts the defect rather than the standard, so that a MySQL version which starts
-     * enforcing the constraint fails this self-check and says so, instead of the
-     * {@code constraint-enforcement} oracle silently going quiet. The controls keep the assertion from
-     * passing for the wrong reason: the same dangling value with a non-NULL second column is rejected
-     * both before and after the index, and a dangling <em>second</em> column is rejected after it.</p>
+     * <p>For contrast, a <em>genuine</em> composite foreign key is checked correctly: a NULL in one of
+     * its own columns satisfies it (SQL's MATCH SIMPLE) and a dangling pair does not. The engine is
+     * applying that rule to the index key instead of to the foreign key's columns.</p>
+     *
+     * <p>The defect is a regression — MySQL 8.0.28 enforces the constraint in every case below — so the
+     * assertion is scoped to the version that has it, and any other version simply reports what it did.
+     * On 26.7.x a version that starts enforcing the constraint fails this self-check and says so,
+     * instead of the {@code constraint-enforcement} oracle silently going quiet.</p>
      */
     private static void checkForeignKeyIndexRebindingRule(DDLSmithDBConnection connection) throws SQLException {
         System.out.println();
-        System.out.println("-- foreign key enforcement after an index over two key columns --");
+        System.out.println("-- foreign key enforcement once an index serves the foreign key --");
+        String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
         connection.executeStatement("CREATE DATABASE " + RULE_PROBE_DATABASE);
         connection.executeStatement("USE " + RULE_PROBE_DATABASE);
-        connection.executeStatement("CREATE TABLE p1 (k INT NOT NULL, PRIMARY KEY (k))");
-        connection.executeStatement("CREATE TABLE p2 (k INT NOT NULL, PRIMARY KEY (k))");
-        connection.executeStatement("CREATE TABLE c (id INT NOT NULL, f1 INT, f2 INT, PRIMARY KEY (id), "
-                + "CONSTRAINT c1 FOREIGN KEY (f1) REFERENCES p1 (k), "
-                + "CONSTRAINT c2 FOREIGN KEY (f2) REFERENCES p2 (k))");
-        connection.executeStatement("INSERT INTO p1 VALUES (1)");
-        connection.executeStatement("INSERT INTO p2 VALUES (1)");
-        assertEquals("before the index, a dangling f1 with a NULL f2 is rejected (1452)", 1452,
+        // `other` is deliberately not part of the foreign key: a NULL in it must not affect the check
+        connection.executeStatement("CREATE TABLE p (k INT NOT NULL, PRIMARY KEY (k))");
+        connection.executeStatement("CREATE TABLE c (id INT NOT NULL, f1 INT, other INT, PRIMARY KEY (id), "
+                + "CONSTRAINT c1 FOREIGN KEY (f1) REFERENCES p (k))");
+        connection.executeStatement("INSERT INTO p VALUES (1)");
+        assertEquals("before the index, a dangling f1 is rejected (1452)", 1452,
                 errorCodeOf(connection, "INSERT INTO c VALUES (10, 999, NULL)"));
-        connection.executeStatement("CREATE INDEX i ON c (f1, f2)");
+        connection.executeStatement("CREATE INDEX i ON c (f1, other)");
         Integer danglingWithNull = errorCodeOf(connection, "INSERT INTO c VALUES (11, 999, NULL)");
-        System.out.println("  after CREATE INDEX i ON c (f1, f2), a dangling f1 with f2 NULL -> "
+        Integer danglingWithoutNull = errorCodeOf(connection, "INSERT INTO c VALUES (12, 999, 7)");
+        System.out.println("  server " + version + ", after CREATE INDEX i ON c (f1, other):");
+        System.out.println("    dangling f1, `other` NULL -> "
                 + (danglingWithNull == null ? "accepted (the foreign key is not enforced)" : "refused " + danglingWithNull));
-        assertEquals("MySQL 26.7.0 does not enforce the first foreign key for a row whose second key "
-                + "column is NULL once an index covers both key columns; a version that starts enforcing "
-                + "it makes this assertion fail, which is the point", null, danglingWithNull);
-        assertEquals("the control: the same dangling value with a non-NULL f2 is still rejected (1452)", 1452,
-                errorCodeOf(connection, "INSERT INTO c VALUES (12, 999, 1)"));
-        assertEquals("the control: a dangling f2 is still rejected (1452)", 1452,
-                errorCodeOf(connection, "INSERT INTO c VALUES (13, NULL, 999)"));
-        Object stored = connection.executeAndGet("SELECT COUNT(*) FROM c WHERE f1 = 999").getValue(0, 0);
-        System.out.println("  rows stored with a dangling f1: " + stored);
-        assertEquals("the row with the dangling reference really is in the table", 1L,
-                stored instanceof Number ? ((Number) stored).longValue() : stored);
+        System.out.println("    dangling f1, `other` set  -> "
+                + (danglingWithoutNull == null ? "accepted" : "refused " + danglingWithoutNull));
+        assertEquals("the control: a dangling f1 with the unrelated column set is rejected (1452)", 1452,
+                danglingWithoutNull);
+        if (version.startsWith("26.7")) {
+            assertEquals("MySQL " + version + " does not enforce the foreign key for a row whose other "
+                    + "indexed column is NULL, even though that column is not part of the foreign key; a "
+                    + "version that starts enforcing it makes this assertion fail, which is the point",
+                    null, danglingWithNull);
+            Object stored = connection.executeAndGet("SELECT COUNT(*) FROM c WHERE f1 = 999").getValue(0, 0);
+            System.out.println("    rows stored with a dangling f1: " + stored);
+            assertEquals("the row with the dangling reference really is in the table", 1L,
+                    stored instanceof Number ? ((Number) stored).longValue() : stored);
+        } else {
+            System.out.println("    (version " + version + " enforces the constraint; the 26.7.0 defect is "
+                    + "not present here)");
+        }
 
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
         connection.executeStatement("USE " + LIVE_DATABASE);
