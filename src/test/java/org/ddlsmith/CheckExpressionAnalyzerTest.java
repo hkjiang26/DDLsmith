@@ -65,6 +65,26 @@ class CheckExpressionAnalyzerTest {
     }
 
     @Test
+    void splitsDisjunctions() {
+        assertEquals(2, CheckExpressionAnalyzer.splitDisjuncts("a1 IS NOT NULL OR a2 IS NOT NULL").size());
+        assertEquals(3, CheckExpressionAnalyzer.splitDisjuncts("a1 IS NOT NULL OR a2 IS NOT NULL OR a3 IS NOT NULL")
+                .size());
+        assertEquals(1, CheckExpressionAnalyzer.splitDisjuncts("a1 IS NOT NULL").size());
+        // the OR inside a string literal must not split
+        assertEquals(1, CheckExpressionAnalyzer.splitDisjuncts("a1 <> 'x OR y'").size());
+        // an operand that is itself parenthesised stays one operand
+        assertEquals(2, CheckExpressionAnalyzer.splitDisjuncts("(a1 IS NOT NULL) OR (a2 IS NOT NULL)").size());
+    }
+
+    @Test
+    void aKeywordInsideAnIdentifierIsNotASeparator() {
+        // "order" contains "or", "android" contains "and": neither may split
+        assertEquals(1, CheckExpressionAnalyzer.splitDisjuncts("order_id IS NOT NULL").size());
+        assertEquals(1, CheckExpressionAnalyzer.splitConjuncts("android IS NOT NULL").size());
+        assertEquals(2, CheckExpressionAnalyzer.splitDisjuncts("a OR order_id IS NOT NULL").size());
+    }
+
+    @Test
     void rejectsExpressionsItDoesNotUnderstand() {
         assertFalse(CheckExpressionAnalyzer.isSimple("length(a1) > 3"));
         assertFalse(CheckExpressionAnalyzer.isSimple("a1 + a2 > 3"));

@@ -594,6 +594,9 @@ public class RowGenerator {
             for (String conjunct : CheckExpressionAnalyzer.splitConjuncts(expression)) {
                 CheckExpressionAnalyzer analyzer = CheckExpressionAnalyzer.parse(conjunct);
                 if (!analyzer.isUnderstood()) {
+                    if (satisfy) {
+                        satisfyNotNullDisjunction(table, row, conjunct);
+                    }
                     continue;
                 }
                 String column = analyzer.getColumnName();
@@ -610,6 +613,48 @@ public class RowGenerator {
                 }
             }
         }
+    }
+
+    /**
+     * Satisfies an <em>at-least-one</em> disjunction of {@code IS NOT NULL} predicates by giving one of
+     * its operands a value, when every operand is currently NULL.
+     *
+     * <p>The single disjunction DDLSmith generates is the union-membership check of a category —
+     * {@code col1 IS NOT NULL OR col2 IS NOT NULL}, written by
+     * {@link org.ddlsmith.mapping.impl.StandardERToRelationalMapper} for a union type with two or more
+     * superclasses. The generator understood neither the disjunction nor its operands one at a time, so
+     * it left the row alone and could emit a row with every membership column NULL — a row that violates
+     * a constraint the tool itself had declared, which the {@code constraint-enforcement} oracle then
+     * reported as the engine being too strict. The engine was right; the row was impossible.
+     *
+     * <p>The rule is applied only when <em>every</em> operand is an {@code IS NOT NULL} test on a column
+     * the row carries, so a disjunction over anything else is left to the other checks rather than being
+     * "satisfied" on a guess. Filling the first operand is enough: one non-NULL member makes the whole
+     * disjunction true, and the other columns keep whatever the generator chose — which is what makes
+     * the row a member of one superclass rather than of all of them.</p>
+     */
+    private void satisfyNotNullDisjunction(Table table, Map<String, Object> row, String expression) {
+        List<String> operands = CheckExpressionAnalyzer.splitDisjuncts(expression);
+        if (operands.size() < 2) {
+            return;
+        }
+        List<String> columns = new ArrayList<>();
+        for (String operand : operands) {
+            CheckExpressionAnalyzer analyzer = CheckExpressionAnalyzer.parse(operand);
+            if (!analyzer.isUnderstood() || analyzer.getOperator() != CheckExpressionAnalyzer.Operator.IS_NOT_NULL
+                    || !row.containsKey(analyzer.getColumnName())) {
+                return;
+            }
+            columns.add(analyzer.getColumnName());
+        }
+        for (String column : columns) {
+            if (row.get(column) != null) {
+                return;
+            }
+        }
+        String target = columns.get(0);
+        Column definition = table.getColumn(target);
+        row.put(target, coerce(valueFor(definition, false), definition == null ? null : definition.getType()));
     }
 
     private boolean violateCheck(Table table, Map<String, Object> row, String expression) {

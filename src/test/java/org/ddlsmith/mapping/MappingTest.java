@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.Column;
@@ -17,6 +18,8 @@ import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.common.schema.ReferentialAction;
 import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.common.schema.View;
+import org.ddlsmith.data.RowGenerator;
+import org.ddlsmith.dbms.Dialects;
 import org.ddlsmith.ermodel.Cardinality;
 import org.ddlsmith.ermodel.ERAttribute;
 import org.ddlsmith.ermodel.ERDiagram;
@@ -483,6 +486,42 @@ class MappingTest {
                 .anyMatch(check -> check.getExpression().contains("IS NOT NULL")
                         && check.getExpression().contains(" OR ")),
                 "the union membership must be expressed as a check constraint");
+    }
+
+    @Test
+    @DisplayName("a generated category row belongs to at least one superclass, as its own check requires")
+    void generatedCategoryRowsSatisfyTheirUnionMembershipCheck() {
+        RelationalSchema schema = map(SelfCheck.categoryDiagram(), SelfCheck.base());
+        Table category = schema.getTable("t_2");
+        // the columns the union-membership check names: the key columns of the membership foreign keys
+        List<String> membershipColumns = new ArrayList<>();
+        for (ForeignKey foreignKey : category.getForeignKeys()) {
+            if (foreignKey.getReferencedTable().equals("t_0") || foreignKey.getReferencedTable().equals("t_1")) {
+                membershipColumns.addAll(foreignKey.getColumns());
+            }
+        }
+        assertFalse(membershipColumns.isEmpty(), "the category must have membership columns");
+
+        // The generator used to leave every membership column NULL and emit a row that violated the
+        // constraint DDLSmith itself had written - the engine rejected it and the
+        // constraint-enforcement oracle reported the engine as too strict. Rows are generated
+        // repeatedly because which columns the generator fills is random: the point is that no
+        // attempt may produce a row with all of them NULL.
+        Randomly.setSeed(20261007L);
+        RowGenerator generator = new RowGenerator(schema, Dialects.forName("h2"));
+        int generated = 0;
+        for (int attempt = 0; attempt < 40; attempt++) {
+            Map<String, Object> row = generator.generateRow(category);
+            if (row.isEmpty()) {
+                continue;
+            }
+            generated++;
+            boolean memberOfSomeSuperclass = membershipColumns.stream().anyMatch(column -> row.get(column) != null);
+            assertTrue(memberOfSomeSuperclass,
+                    "a category row must satisfy its union-membership check, but every membership column "
+                            + "was NULL in " + row);
+        }
+        assertTrue(generated > 0, "the category table must be populatable");
     }
 
     @Test

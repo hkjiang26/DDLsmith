@@ -955,6 +955,8 @@ public final class SelfCheck {
             checkSelfReferentialCascadeRule(dbConnection);
             checkForeignKeyIndexNamingRule(introspector, dbConnection);
             checkForeignKeyIndexRebindingRule(dbConnection);
+            checkCascadeDeleteChainRule(dbConnection);
+            checkCompositeSelfReferenceRule(dbConnection);
         } catch (SQLException e) {
             checks++;
             FAILURES.add("live round trip failed: " + e.getClass().getSimpleName() + ": " + oneLine(e.getMessage()));
@@ -1064,7 +1066,7 @@ public final class SelfCheck {
                 + (danglingWithoutNull == null ? "accepted" : "refused " + danglingWithoutNull));
         assertEquals("the control: a dangling f1 with the unrelated column set is rejected (1452)", 1452,
                 danglingWithoutNull);
-        if (version.startsWith("26.7")) {
+        if (version.startsWith("26.7") && !usesNativeForeignKeyPath(connection)) {
             assertEquals("MySQL " + version + " does not enforce the foreign key for a row whose other "
                     + "indexed column is NULL, even though that column is not part of the foreign key; a "
                     + "version that starts enforcing it makes this assertion fail, which is the point",
@@ -1074,9 +1076,181 @@ public final class SelfCheck {
             assertEquals("the row with the dangling reference really is in the table", 1L,
                     stored instanceof Number ? ((Number) stored).longValue() : stored);
         } else {
-            System.out.println("    (version " + version + " enforces the constraint; the 26.7.0 defect is "
-                    + "not present here)");
+            // The defect belongs to the SQL-engine foreign key path that MySQL 9.6 introduced. It is
+            // absent both on an older server and on 26.7.0 started with innodb_native_foreign_keys=TRUE,
+            // so the assertion has to be scoped by the path and not only by the version string: the
+            // first version of this probe keyed it to "26.7" alone and was therefore red on the campaign's
+            // native-path control server, where the engine behaves correctly. A self-check that is red
+            // where the engine is right is the kind of permanent blind spot this file exists to avoid.
+            System.out.println("    (this server does not have the 26.7.0 SQL-engine defect: "
+                    + (usesNativeForeignKeyPath(connection) ? "innodb_native_foreign_keys=ON" : "version " + version)
+                    + ")");
         }
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + LIVE_DATABASE);
+    }
+
+    /**
+     * Pins the cascade-delete rule of the SQL-engine foreign key path: a self-referencing
+     * {@code ON DELETE CASCADE} whose chain is three rows deep makes the whole delete fail with error
+     * 6575, "Foreign key cascade delete/update exceeds max tables limit of 30" — on a schema with two
+     * tables.
+     *
+     * <p>Found on 2026-10-06 by following up a {@code STANDARD_DEVIATION} the twelve-hour campaign
+     * reported, and filed as {@code bugs/mysql/003}. It is a regression: MySQL 8.0.28 accepts the same
+     * delete and removes every row, and so does 26.7.0 itself when it is started with
+     * {@code innodb_native_foreign_keys=TRUE}, which restores the InnoDB path the SQL engine replaced in
+     * 9.6. Both paths live in one server, so the two answers come from the same version with no
+     * cross-version confound.</p>
+     *
+     * <p>The chain length is the whole rule: two rows cascade, three are refused, and nothing is deleted
+     * when it is refused. The number of child tables is not what the message's "max tables limit"
+     * counts — five child tables behave exactly like one — so the probe asserts the boundary at the
+     * chain length rather than the message's number.</p>
+     */
+    private static void checkCascadeDeleteChainRule(DDLSmithDBConnection connection) throws SQLException {
+        System.out.println();
+        System.out.println("-- a cascading delete over a self-referencing hierarchy --");
+        String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
+        boolean nativePath = usesNativeForeignKeyPath(connection);
+        System.out.println("  server " + version + ", innodb_native_foreign_keys="
+                + (nativePath ? "ON (the InnoDB path)" : "OFF (the SQL-engine path)"));
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE DATABASE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE TABLE p (id BIGINT NOT NULL, up BIGINT, PRIMARY KEY (id), "
+                + "CONSTRAINT fk_up FOREIGN KEY (up) REFERENCES p (id) ON DELETE CASCADE)");
+        connection.executeStatement("CREATE TABLE c (id BIGINT NOT NULL, pid BIGINT, PRIMARY KEY (id), "
+                + "CONSTRAINT fk_c FOREIGN KEY (pid) REFERENCES p (id) ON DELETE CASCADE)");
+
+        // a chain of two: the boundary below the defect
+        connection.executeStatement("INSERT INTO p VALUES (1, NULL), (2, 1)");
+        connection.executeStatement("INSERT INTO c VALUES (1, 1), (2, 2)");
+        Integer twoRows = errorCodeOf(connection, "DELETE FROM p WHERE id = 1");
+        Object leftAfterTwo = connection.executeAndGet("SELECT COUNT(*) FROM p").getValue(0, 0);
+        System.out.println("  chain of 2 rows -> " + (twoRows == null ? "accepted" : "refused " + twoRows)
+                + ", " + leftAfterTwo + " parent row(s) left");
+        assertEquals("a two-row self-referencing cascade is deleted", null, twoRows);
+        assertEquals("and it removes the parent rows", 0L,
+                leftAfterTwo instanceof Number ? ((Number) leftAfterTwo).longValue() : leftAfterTwo);
+
+        // a chain of three: the defect
+        connection.executeStatement("DELETE FROM c");
+        connection.executeStatement("DELETE FROM p");
+        connection.executeStatement("INSERT INTO p VALUES (1, NULL), (2, 1), (3, 2)");
+        connection.executeStatement("INSERT INTO c VALUES (1, 1), (2, 2), (3, 3)");
+        Integer threeRows = errorCodeOf(connection, "DELETE FROM p WHERE id = 1");
+        Object leftAfterThree = connection.executeAndGet("SELECT COUNT(*) FROM p").getValue(0, 0);
+        Object childrenLeft = connection.executeAndGet("SELECT COUNT(*) FROM c").getValue(0, 0);
+        System.out.println("  chain of 3 rows -> " + (threeRows == null ? "accepted" : "refused " + threeRows)
+                + ", " + leftAfterThree + " parent row(s) and " + childrenLeft + " child row(s) left");
+        if (version.startsWith("26.7") && !nativePath) {
+            assertEquals("MySQL " + version + " on the SQL-engine path refuses the delete with error 6575; "
+                    + "a version that starts accepting it makes this assertion fail, which is the point",
+                    6575, threeRows);
+            assertEquals("and the refusal leaves the table untouched", 3L,
+                    leftAfterThree instanceof Number ? ((Number) leftAfterThree).longValue() : leftAfterThree);
+        } else {
+            // the InnoDB path, and every version before the SQL engine took the cascade over
+            assertEquals("the InnoDB path deletes a three-row self-referencing cascade", null, threeRows);
+            assertEquals("and it removes every row of the hierarchy", 0L,
+                    leftAfterThree instanceof Number ? ((Number) leftAfterThree).longValue() : leftAfterThree);
+        }
+
+        // the control that shows the rule is about the *cascading* self-reference, not about depth:
+        // the same three-row chain with a self-referencing key that does not cascade is accepted
+        connection.executeStatement("DROP TABLE c");
+        connection.executeStatement("DROP TABLE p");
+        connection.executeStatement("CREATE TABLE p (id BIGINT NOT NULL, up BIGINT, PRIMARY KEY (id), "
+                + "CONSTRAINT fk_up FOREIGN KEY (up) REFERENCES p (id))");
+        connection.executeStatement("CREATE TABLE c (id BIGINT NOT NULL, pid BIGINT, PRIMARY KEY (id), "
+                + "CONSTRAINT fk_c FOREIGN KEY (pid) REFERENCES p (id) ON DELETE CASCADE)");
+        connection.executeStatement("INSERT INTO p VALUES (1, NULL), (2, 1), (3, 2)");
+        connection.executeStatement("INSERT INTO c VALUES (1, 1), (2, 2), (3, 3)");
+        Integer leafDelete = errorCodeOf(connection, "DELETE FROM p WHERE id = 3");
+        System.out.println("  chain of 3 rows, self-referencing key without CASCADE -> "
+                + (leafDelete == null ? "accepted" : "refused " + leafDelete));
+        assertEquals("without a cascading self-reference the same shape is accepted", null, leafDelete);
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + LIVE_DATABASE);
+    }
+
+    /**
+     * Pins the composite-key rule of the SQL-engine foreign key path: a <em>self-referencing composite</em>
+     * foreign key is not enforced at all, and the table accumulates rows whose key columns are all
+     * non-NULL and have no parent.
+     *
+     * <p>Found on 2026-10-06 by the {@code constraint-enforcement} oracle in the twelve-hour campaign
+     * ({@code runs/mysql-campaign/12h-b}, seed 4500013) and filed as {@code bugs/mysql/004}. It is a
+     * defect of the SQL-engine path MySQL 9.6 introduced, so it is absent on 26.7.0 started with
+     * {@code innodb_native_foreign_keys=TRUE} — both paths live in one server, so the two answers come
+     * from the same version with no cross-version confound.</p>
+     *
+     * <p>Because the failing key is <em>composite</em> and both of its columns are non-NULL, this is not
+     * the {@code MATCH SIMPLE} case MySQL documents, which permits only an all-or-partially-NULL
+     * composite key; the probe asserts that control separately, so a version that starts enforcing the
+     * constraint fails this self-check instead of the oracle going quiet, and a version that stops
+     * honouring {@code MATCH SIMPLE} fails it too.</p>
+     */
+    private static void checkCompositeSelfReferenceRule(DDLSmithDBConnection connection) throws SQLException {
+        System.out.println();
+        System.out.println("-- a self-referencing composite foreign key --");
+        String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
+        boolean nativePath = usesNativeForeignKeyPath(connection);
+        System.out.println("  server " + version + ", innodb_native_foreign_keys="
+                + (nativePath ? "ON (the InnoDB path)" : "OFF (the SQL-engine path)"));
+
+        connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
+        connection.executeStatement("CREATE DATABASE " + RULE_PROBE_DATABASE);
+        connection.executeStatement("USE " + RULE_PROBE_DATABASE);
+        // The shape that fails: a self-referencing composite key, plus indexes over the key columns. The
+        // extra indexes are part of the trigger - without them the engine rejects the dangling row
+        // correctly - so they are deliberately present.
+        connection.executeStatement("CREATE TABLE cs (a9 INT NOT NULL, a11 CHAR(5) NOT NULL, "
+                + "a12 BOOLEAN NOT NULL, a13 BIGINT NOT NULL, e4_dst_a12 BOOLEAN, e4_dst_a13 BIGINT, "
+                + "PRIMARY KEY (a12, a13), KEY fk_cs (e4_dst_a12, e4_dst_a13), KEY idx_cs_0 (a11, e4_dst_a12), "
+                + "KEY idx_cs_1 (e4_dst_a12, a13, a11, a9, a12, e4_dst_a13), "
+                + "KEY idx_cs_2 (e4_dst_a12, a11, a9, a12, e4_dst_a13), "
+                + "CONSTRAINT fk_cs FOREIGN KEY (e4_dst_a12, e4_dst_a13) REFERENCES cs (a12, a13))");
+
+        // both key columns non-NULL and no parent row: the row must be refused
+        Integer dangling = errorCodeOf(connection, "INSERT INTO cs (a9, a11, a12, a13, e4_dst_a12, e4_dst_a13) "
+                + "VALUES (-96, 'wwmad', TRUE, 565, TRUE, 9223372036854775806)");
+        Object stored = connection.executeAndGet("SELECT COUNT(*) FROM cs WHERE e4_dst_a13 = 9223372036854775806")
+                .getValue(0, 0);
+        System.out.println("  dangling (both key columns set) -> "
+                + (dangling == null ? "accepted" : "refused " + dangling) + ", " + stored + " row(s) stored");
+        if (version.startsWith("26.7") && !nativePath) {
+            assertEquals("MySQL " + version + " on the SQL-engine path accepts a row whose composite "
+                    + "self-referencing foreign key is entirely non-NULL and has no parent; a version that "
+                    + "starts enforcing the constraint makes this assertion fail, which is the point",
+                    null, dangling);
+            assertEquals("and the row really is in the table", 1L,
+                    stored instanceof Number ? ((Number) stored).longValue() : stored);
+        } else {
+            assertEquals("the constraint is enforced: the dangling row is refused with 1452", 1452, dangling);
+            assertEquals("and nothing was stored", 0L,
+                    stored instanceof Number ? ((Number) stored).longValue() : stored);
+        }
+
+        // the control that keeps the assertion honest: MATCH SIMPLE must still be honoured everywhere
+        Integer partialNull = errorCodeOf(connection, "INSERT INTO cs (a9, a11, a12, a13, e4_dst_a12, e4_dst_a13) "
+                + "VALUES (1, 'ctl', TRUE, 999, TRUE, NULL)");
+        System.out.println("  control, key partially NULL -> "
+                + (partialNull == null ? "accepted (MATCH SIMPLE)" : "refused " + partialNull));
+        assertEquals("a partially NULL composite key is accepted by design (MATCH SIMPLE)", null, partialNull);
+
+        // and a legitimate child row must be accepted, so the probe cannot pass by refusing everything
+        connection.executeStatement("INSERT INTO cs (a9, a11, a12, a13, e4_dst_a12, e4_dst_a13) "
+                + "VALUES (2, 'root', FALSE, 0, NULL, NULL)");
+        Integer legitimate = errorCodeOf(connection, "INSERT INTO cs (a9, a11, a12, a13, e4_dst_a12, e4_dst_a13) "
+                + "VALUES (3, 'child', TRUE, 7, FALSE, 0)");
+        System.out.println("  control, a legitimate child row -> "
+                + (legitimate == null ? "accepted" : "refused " + legitimate));
+        assertEquals("a child row whose parent exists is accepted", null, legitimate);
 
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
         connection.executeStatement("USE " + LIVE_DATABASE);
@@ -1089,6 +1263,26 @@ public final class SelfCheck {
             return null;
         } catch (SQLException e) {
             return e.getErrorCode();
+        }
+    }
+
+    /**
+     * @return true when the server enforces foreign keys through InnoDB rather than through the SQL
+     *         engine MySQL 9.6 introduced, so that a probe can be scoped by the <em>path</em> and not
+     *         only by the version string
+     *
+     * <p>Two engine defects this file pins live in the SQL-engine path and are absent from the InnoDB
+     * path of the very same server ({@code bugs/mysql/002} and {@code bugs/mysql/003}), so a probe that
+     * keyed its assertion to the version alone was red on a control server where the engine is right.
+     * {@code innodb_native_foreign_keys} is the switch between the two paths; the variable does not exist
+     * before 9.6, where InnoDB is the only path and the answer is therefore true.</p>
+     */
+    private static boolean usesNativeForeignKeyPath(DDLSmithDBConnection connection) {
+        try {
+            Object flag = connection.executeAndGet("SELECT @@innodb_native_foreign_keys").getValue(0, 0);
+            return flag instanceof Number && ((Number) flag).longValue() != 0L;
+        } catch (SQLException e) {
+            return true;
         }
     }
 

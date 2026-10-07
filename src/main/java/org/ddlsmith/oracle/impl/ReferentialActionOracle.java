@@ -420,6 +420,30 @@ public class ReferentialActionOracle implements TestOracle {
             // the same parent row - two foreign keys from one join table to one entity is a shape
             // DDLSmith generates routinely, and the difference was reported as the engine removing
             // the wrong number of rows.
+            //
+            // That model is exact only while the deleted row is the only row of the parent table the
+            // cascade removes. When the parent table carries its own self-referencing ON DELETE CASCADE
+            // - the mapping of a recursive relationship - deleting one row can also delete its
+            // descendants, and the child rows pointing at those descendants go with them, one level
+            // further than any count over "the child table" can see. Measured at seed 4400026: the
+            // deleted row was a root, its child t_1.id = 12 was a descendant, and t_0 held a row
+            // pointing at each, so the engine removed two child rows where the model counted one. The
+            // engine was right.
+            //
+            // Modelling the transitive closure would need a recursive query the oracle's counting
+            // helper cannot express, and a wrong closure would manufacture exactly the false findings
+            // this project spends its effort removing. The comparison is therefore skipped when the
+            // parent table has such a key, and the stronger check above - that no row still references
+            // the deleted parent - still runs.
+            if (hasSelfReferencingCascade(parent)) {
+                notes.add(prefix + "delete probe counted but not compared: " + parent.getName()
+                        + " has a self-referencing ON DELETE CASCADE, so the cascade can remove child rows "
+                        + "that reach the deleted row through another row of " + parent.getName()
+                        + " and no count over " + child.getName()
+                        + " can see them; the rows that referenced the deleted parent are gone, which is the "
+                        + "part of the declaration this probe can still verify");
+                break;
+            }
             long expectedRemaining = childTotalBefore - (cascadingRemoved == null ? referencing : cascadingRemoved);
             if (childTotalAfter != expectedRemaining) {
                 findings.add(ConstraintEnforcementOracle.Support.Finding.of(FailureKind.STANDARD_DEVIATION,
@@ -862,6 +886,36 @@ public class ReferentialActionOracle implements TestOracle {
             }
         }
         return null;
+    }
+
+    /**
+     * @return true when {@code table} carries a self-referencing {@code ON DELETE CASCADE}, so that
+     *         deleting one of its rows can remove <em>other rows of the same table</em>
+     *
+     * <p>When it can, a cascade descends one level further than any count over the child table can
+     * follow: the descendant row is removed, and so are the child rows that referenced <em>it</em>.
+     * Measured at seed 4400026 — the deleted row was a root with no descendant <em>of its own</em>, but
+     * its child {@code t_1.id = 12} was one, and {@code t_0} held a row pointing at each: the engine
+     * removed two child rows where the model counted one, and the engine was right.</p>
+     *
+     * <p>The question is asked of the <em>table</em> and not of the row being deleted, on purpose. The
+     * probe runs against the schema as it stands before the delete, and the oracle cannot know which
+     * rows its own later probes will add, so a per-row answer would be right for the rows present and
+     * wrong for the rows the cascade goes on to reach. Asking about the table is the conservative
+     * question, and the cost of being conservative is bounded: it declines one count comparison, while
+     * the stronger check — that no row still references the deleted parent — still runs.</p>
+     */
+    private static boolean hasSelfReferencingCascade(Table table) {
+        for (ForeignKey foreignKey : table.getForeignKeys()) {
+            if (foreignKey.getOnDelete() != ReferentialAction.CASCADE) {
+                continue;
+            }
+            if (ConstraintEnforcementOracle.Support.normalize(foreignKey.getReferencedTable())
+                    .equals(ConstraintEnforcementOracle.Support.normalize(table.getName()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

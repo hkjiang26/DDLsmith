@@ -119,8 +119,31 @@ public final class CheckExpressionAnalyzer {
 
     /** Splits a top-level {@code AND} conjunction into its conjuncts. */
     public static List<String> splitConjuncts(String expression) {
+        return splitTopLevel(expression, "and");
+    }
+
+    /**
+     * Splits a top-level {@code OR} disjunction into its operands.
+     *
+     * <p>The row generator needs this for the one disjunction DDLSmith itself produces: the
+     * union-membership check of a category, {@code col1 IS NOT NULL OR col2 IS NOT NULL}, which
+     * {@link org.ddlsmith.mapping.impl.StandardERToRelationalMapper} writes for a union type with two or
+     * more superclasses. That constraint is an <em>at-least-one</em> rule, so its operands may not be
+     * satisfied one by one — the caller has to see them together.</p>
+     */
+    public static List<String> splitDisjuncts(String expression) {
+        return splitTopLevel(expression, "or");
+    }
+
+    /**
+     * Splits an expression on a top-level binary keyword, ignoring occurrences inside parentheses or
+     * string literals. A keyword is only recognised when it stands alone, so a column named
+     * {@code android} or {@code order_id} is not mistaken for {@code and}/{@code or}.
+     */
+    private static List<String> splitTopLevel(String expression, String keyword) {
         List<String> parts = new ArrayList<>();
         String trimmed = stripOuterParentheses(expression == null ? "" : expression.trim());
+        int length = keyword.length();
         int depth = 0;
         boolean inString = false;
         int start = 0;
@@ -133,9 +156,10 @@ public final class CheckExpressionAnalyzer {
                     depth++;
                 } else if (c == ')') {
                     depth--;
-                } else if (depth == 0 && (c == 'A' || c == 'a') && matchesAnd(trimmed, i)) {
+                } else if (depth == 0 && Character.toLowerCase(c) == keyword.charAt(0)
+                        && matchesKeyword(trimmed, i, keyword)) {
                     parts.add(trimmed.substring(start, i).trim());
-                    i += 3;
+                    i += length - 1;
                     start = i + 1;
                 }
             }
@@ -144,16 +168,17 @@ public final class CheckExpressionAnalyzer {
         return parts;
     }
 
-    private static boolean matchesAnd(String text, int index) {
-        if (index + 3 > text.length()) {
+    private static boolean matchesKeyword(String text, int index, String keyword) {
+        int length = keyword.length();
+        if (index + length > text.length()) {
             return false;
         }
-        String candidate = text.substring(index, index + 3);
-        if (!candidate.equalsIgnoreCase("and")) {
+        String candidate = text.substring(index, index + length);
+        if (!candidate.equalsIgnoreCase(keyword)) {
             return false;
         }
         boolean leftOk = index == 0 || !Character.isLetterOrDigit(text.charAt(index - 1));
-        boolean rightOk = index + 3 >= text.length() || !Character.isLetterOrDigit(text.charAt(index + 3));
+        boolean rightOk = index + length >= text.length() || !Character.isLetterOrDigit(text.charAt(index + length));
         return leftOk && rightOk;
     }
 
@@ -169,6 +194,17 @@ public final class CheckExpressionAnalyzer {
         return result;
     }
 
+    /**
+     * @return true when the parentheses in {@code text} are balanced <em>and</em> properly nested, so
+     *         that the text is a well-formed fragment on its own
+     *
+     * <p>Checking only that the depth returns to zero is not enough: {@code a) OR (b} also ends at zero,
+     * because the first closing parenthesis takes the depth to -1 and the second returns it. Treating
+     * that as balanced made {@link #stripOuterParentheses} remove the parentheses of
+     * {@code (a1 IS NOT NULL) OR (a2 IS NOT NULL)} — they are not a pair — and then split the mangled
+     * text at the wrong depth. A depth that ever goes negative means the first {@code (} does not open
+     * the whole text, which is exactly what this predicate has to detect.</p>
+     */
     private static boolean balanced(String text) {
         int depth = 0;
         boolean inString = false;
@@ -181,6 +217,9 @@ public final class CheckExpressionAnalyzer {
                     depth++;
                 } else if (c == ')') {
                     depth--;
+                    if (depth < 0) {
+                        return false;
+                    }
                 }
             }
         }
