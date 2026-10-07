@@ -65,6 +65,36 @@ Steps 2–4 are where the interesting structure comes from:
   alternative randomized (foreign key vs. merged table vs. join table for 1:1; three strategies for
   generalization hierarchies; natural vs. surrogate keys; and so on).
 
+### One graph, several databases
+
+The chain above is a sequence of independent random decisions: the graph schema, the graph instance,
+the ER interpretation of that instance, and the mapping decisions. `--databases-per-graph K` (default
+**8**) decouples the last two from the first two: the graph is generated once per group of K databases,
+and each database of the group re-draws only the ER interpretation and the mapping. One graph therefore
+becomes K databases — the same nodes and edges read as different ER diagrams (different features
+recognized, different keys chosen, a triangle read as a ternary relationship in one database and as an
+aggregation in the next) and mapped to different tables. This is where the input variety multiplies,
+and it is the reason the summary reports distinct ER diagrams and distinct schemas next to the number
+of databases.
+
+`--databases-per-graph 1` restores the historic behaviour (one graph per database). It is what to pass
+to regenerate a database recorded before this option existed: the seed names the graph and the slot
+names the interpretation, so with a group size above 1 the same seed produces the same graph but a
+different ER diagram. Databases recorded from now on carry both values, and a failure report says how
+to regenerate its database exactly.
+
+`--reroll-instance` additionally re-draws the graph *instance* for every database of the group, keeping
+only the graph schema fixed. That is what reaches the ER features the instance locks in: whether a
+label becomes a weak entity, whether it gets an identifying relationship and whether a recursive type
+becomes a multi-valued attribute are decided by the nodes and edges, not by a coin, so within one
+instance they are identical in every database.
+
+The seed names the graph and the slot names the interpretation. Both are recorded in failure reports,
+so one database of a group can be regenerated exactly with `--input-slot`. The measured effect at equal
+budget — 20 graphs instead of 500, with 79% of the ER variety and 100% of the schema variety — and the
+measured cost curve that fixes the default at 8 are in
+[docs/ACCEPTANCE-EXPANSION.md](docs/ACCEPTANCE-EXPANSION.md).
+
 ## 2. Why testing DDL is worth doing
 
 DDL is where an engine's declared semantics and its actual behaviour most often drift apart, and
@@ -176,6 +206,9 @@ Just print the generated DDL, without any database:
 java -jar target/DDLSmith.jar postgres --print-ddl-only --random-seed 42
 ```
 
+That prints one script per database of the graph group, which is 8 scripts by default — the same graph
+read eight ways. Add `--databases-per-graph 1` to get the single script the seed used to produce.
+
 Replay a recorded failure:
 
 ```shell
@@ -203,6 +236,9 @@ java -jar target/DDLSmith.jar sqlite --random-seed 42 --num-tries 1
 | `--evolve-steps` | Number of random `ALTER TABLE` statements generated after schema creation. |
 | `--graph-generator` | `random`, `sliding`, `tree`, `preferential`, `smallworld`, `hybrid`, or `mix` (default). |
 | `--min-node-num`, `--max-node-num` | Size of the generated graph, i.e. the number of entities. |
+| `--databases-per-graph` | How many databases share one generated graph (default 8, minimum 1). Each database of the group re-draws the ER interpretation and the mapping decisions, so one graph becomes that many databases. 8 is where the measured cost curve turns (11% repeated ER diagrams at 8, 21% at 16 — [docs/ACCEPTANCE-EXPANSION.md](docs/ACCEPTANCE-EXPANSION.md) §5.1); pass 1 to regenerate databases recorded before this option existed. |
+| `--reroll-instance` | With `--databases-per-graph` > 1: re-generate the graph instance for every database of the group as well, keeping only the graph schema fixed. |
+| `--input-slot` | Which database of a group to generate (default 0). Used to regenerate the exact input of one database. |
 | `--insert-rows` | Rows inserted per table before the data oracles run. |
 | `--max-constraint-probes` | Upper bound on constraint probes per database. |
 | `--schema-name` | Namespace used for generated objects (engines without schemas ignore it). |

@@ -22,6 +22,13 @@ public class OracleFailure {
     private final Throwable cause;
     /** The kind of defect, used for grouping in the summary. */
     private final FailureKind kind;
+    /**
+     * Which database of its {@code --databases-per-graph} group found this. The seed names the graph
+     * and the slot names which interpretation of that graph was tested, so both are needed to
+     * regenerate the input. Left at its default when every database has a graph of its own.
+     */
+    private int inputSlot;
+    private int databasesPerGraph = 1;
 
     public enum FailureKind {
         /** An unexpected error was raised for a statement the engine claims to support. */
@@ -88,6 +95,24 @@ public class OracleFailure {
         return kind;
     }
 
+    public int getInputSlot() {
+        return inputSlot;
+    }
+
+    public int getDatabasesPerGraph() {
+        return databasesPerGraph;
+    }
+
+    /**
+     * Records which database of a graph group found this failure. Called once, where the failures of a
+     * database are reported, so that every report carries the identity of its input.
+     */
+    public OracleFailure setInputIdentity(int inputSlot, int databasesPerGraph) {
+        this.inputSlot = inputSlot;
+        this.databasesPerGraph = Math.max(1, databasesPerGraph);
+        return this;
+    }
+
     /** @return the text written into the failure log */
     public String toLogString() {
         StringBuilder sb = new StringBuilder();
@@ -97,7 +122,12 @@ public class OracleFailure {
         sb.append("kind      : ").append(kind).append('\n');
         sb.append("oracle    : ").append(oracleName).append('\n');
         sb.append("database  : ").append(databases).append('\n');
-        sb.append("seed      : ").append(seed).append('\n');
+        sb.append("seed      : ").append(seed);
+        if (databasesPerGraph > 1) {
+            sb.append("   (slot ").append(inputSlot).append(" of ").append(databasesPerGraph)
+                    .append(": this database shares its graph with the others of the group)");
+        }
+        sb.append('\n');
         sb.append("--------------------------------------------------------------------------------\n");
         sb.append(details).append('\n');
         if (reproducerSql != null && !reproducerSql.isBlank()) {
@@ -121,7 +151,8 @@ public class OracleFailure {
 
     /** @return the file name safe summary used for the log file of this failure */
     public String toShortString() {
-        return kind + ": " + title + " (seed=" + seed + ", db=" + databases + ")";
+        String slot = databasesPerGraph > 1 ? ", slot=" + inputSlot + "/" + databasesPerGraph : "";
+        return kind + ": " + title + " (seed=" + seed + slot + ", db=" + databases + ")";
     }
 
     @Override

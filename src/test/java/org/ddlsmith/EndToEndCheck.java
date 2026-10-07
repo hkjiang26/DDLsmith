@@ -54,6 +54,7 @@ public final class EndToEndCheck {
             checkEngine(engine, seed, rounds);
         }
         differentialCheck(seed, rounds);
+        expansionCheck(seed);
 
         System.out.println();
         System.out.println("================================================================================");
@@ -215,12 +216,113 @@ public final class EndToEndCheck {
         }
     }
 
+    /**
+     * Runs the two-level sampling end to end: several databases generated from fewer graphs, each one
+     * created in a real database and round-tripped through introspection.
+     *
+     * <p>What it asserts is the point of {@code --databases-per-graph}: the databases of a group share
+     * their graph and must not share their ER diagram or their relational schema, and every one of them
+     * must still create and introspect cleanly — sharing a graph must not produce a schema the engine
+     * cannot represent.</p>
+     */
+    private static void expansionCheck(long seed) throws Exception {
+        int group = 4;
+        int databases = 8;
+        String engine = "sqlite";
+        System.out.println();
+        System.out.println("### expansion (" + databases + " databases from " + (databases / group)
+                + " graphs on " + engine + ")");
+        Dialect dialect = Dialects.forName(engine);
+        SchemaIntrospector introspector = Introspectors.forName(engine);
+        MainOptions options = new MainOptions();
+        options.setRandomSeed(seed + 5000);
+        options.setMinNodeNum(6);
+        options.setMaxNodeNum(14);
+        options.setDatabasesPerGraph(group);
+        Randomly.initialize(options);
+
+        java.util.Set<String> graphs = new java.util.LinkedHashSet<>();
+        java.util.Set<String> diagrams = new java.util.LinkedHashSet<>();
+        java.util.Set<String> schemas = new java.util.LinkedHashSet<>();
+        int clean = 0;
+        int created = 0;
+        for (int index = 0; index < databases; index++) {
+            Randomly.setSeed(options.getRandomSeed() + index / group);
+            Pipeline.Generated generated = Pipeline.generate(new HeadlessState(options, index % group), dialect);
+            graphs.add(org.ddlsmith.graph.gen.ERDiagramPrinter.describe(generated.graph, generated.graphSchema));
+            diagrams.add(generated.erDiagram.getStatistics().toString());
+            schemas.add(generated.adaptedSchema.getStatistics().toString());
+
+            DatabaseConfig target = Targets.primary(engine, options);
+            try (DDLSmithDBConnection connection = Targets.open(target, "exp_" + engine + "_" + index)) {
+                for (String setup : dialect.getSessionSetupStatements()) {
+                    connection.executeStatement(setup);
+                }
+                for (DDLStatement statement : SchemaCreationScript.create(generated.adaptedSchema, dialect, options)) {
+                    for (String sql : dialect.renderAll(statement)) {
+                        try {
+                            connection.executeStatement(sql);
+                            created++;
+                        } catch (Exception e) {
+                            failures++;
+                            String message = "  [expansion database " + index + "] CREATE FAILED: " + sql + " -> "
+                                    + e.getMessage();
+                            System.out.println(message);
+                            report.add(message);
+                        }
+                    }
+                }
+                RelationalSchema actual = introspector.introspect(connection, generated.adaptedSchema.getName());
+                java.util.Set<SchemaIntrospector.IntrospectionCapability> capabilities = new java.util.LinkedHashSet<>(
+                        introspector.getCapabilities());
+                List<SchemaDifference> differences = SchemaNormalizer.diff(
+                        SchemaNormalizer.erase(generated.adaptedSchema, capabilities), actual, true,
+                        capabilities.contains(
+                                SchemaIntrospector.IntrospectionCapability.FOREIGN_KEY_ACTIONS));
+                if (differences.isEmpty()) {
+                    clean++;
+                } else {
+                    String message = "  [expansion database " + index + "] ROUND TRIP DIFFERENCES ("
+                            + differences.size() + "):\n" + SchemaNormalizer.render(differences);
+                    System.out.println(message);
+                    report.add(message);
+                }
+            }
+        }
+        System.out.println("  graphs=" + graphs.size() + " (expected " + (databases / group) + "), ER diagrams="
+                + diagrams.size() + ", schemas=" + schemas.size() + ", statements=" + created
+                + ", clean round trips=" + clean + "/" + databases);
+        int expectedGraphs = databases / group;
+        if (graphs.size() != expectedGraphs) {
+            failures++;
+            report.add("  [expansion] expected " + expectedGraphs + " distinct graphs, got " + graphs.size());
+        }
+        if (diagrams.size() < databases - 2) {
+            failures++;
+            report.add("  [expansion] only " + diagrams.size() + " of " + databases
+                    + " databases read the graph differently");
+        }
+        if (clean != databases) {
+            failures++;
+            report.add("  [expansion] only " + clean + " of " + databases + " databases round-tripped cleanly");
+        }
+        report.add("expansion: " + graphs.size() + " graphs -> " + diagrams.size() + " ER diagrams, "
+                + schemas.size() + " schemas, " + clean + "/" + databases + " clean round trips");
+    }
+
     /** A state with no connection, used to drive the pipeline from the check. */
     private static final class HeadlessState
             extends GlobalState<org.ddlsmith.dbms.ConnectionOptions, DDLSmithDBConnection> {
         HeadlessState(MainOptions options) {
+            this(options, 0);
+        }
+
+        HeadlessState(MainOptions options, int slot) {
             setMainOptions(options);
-            setState(new StateToReproduce("e2e"));
+            StateToReproduce state = new StateToReproduce("e2e");
+            state.inputSlot = slot;
+            state.seedValue = Randomly.getSeed();
+            setState(state);
             setDatabaseName("e2e");
         }
     }

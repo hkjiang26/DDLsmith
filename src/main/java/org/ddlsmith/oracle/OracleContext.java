@@ -36,6 +36,12 @@ public class OracleContext {
     /** Every statement that was executed, with its outcome. */
     private final List<ExecutionEvent> executionEvents = new ArrayList<>();
     private long seed;
+    /**
+     * Which database of its {@code --databases-per-graph} group this one is. Together with the seed it
+     * identifies the input: the seed names the graph, the slot names which interpretation of it was
+     * tested. Reported next to the seed so that a failure can be regenerated.
+     */
+    private int inputSlot;
 
     public List<ExecutionEvent> getExecutionEvents() {
         return executionEvents;
@@ -235,6 +241,27 @@ public class OracleContext {
     public OracleContext setSeed(long seed) {
         this.seed = seed;
         return this;
+    }
+
+    public int getInputSlot() {
+        return inputSlot;
+    }
+
+    public OracleContext setInputSlot(int inputSlot) {
+        this.inputSlot = inputSlot;
+        return this;
+    }
+
+    /**
+     * @return the identity of the tested input as it appears in reports: the seed, plus the slot of
+     *         the graph group when more than one database shares a graph
+     */
+    public String describeInputIdentity() {
+        int databasesPerGraph = options == null ? 1 : options.getDatabasesPerGraph();
+        if (databasesPerGraph <= 1) {
+            return "seed=" + seed;
+        }
+        return "seed=" + seed + ", slot=" + inputSlot + "/" + databasesPerGraph;
     }
 
     /** A database on which the generated schema was materialized. */

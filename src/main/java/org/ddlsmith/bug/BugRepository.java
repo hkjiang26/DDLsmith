@@ -399,7 +399,11 @@ public final class BugRepository {
                     + "so this may be a consequence of that rejection rather than a defect of its own |\n");
         }
         sb.append("| **Occurrences** | ").append(entry.occurrences).append(" |\n");
-        sb.append("| **First seen** | seed=").append(entry.firstSeed).append(", database=")
+        sb.append("| **First seen** | seed=").append(entry.firstSeed)
+                .append(entry.databasesPerGraph > 1
+                        ? ", slot=" + entry.firstInputSlot + "/" + entry.databasesPerGraph
+                        : "")
+                .append(", database=")
                 .append(entry.firstDatabase).append(" |\n");
         sb.append("| **Signature** | `").append(entry.signature).append("` |\n");
         sb.append('\n');
@@ -479,6 +483,11 @@ public final class BugRepository {
     private String reproduceCommand(BugEntry entry, MainOptions options) {
         StringBuilder sb = new StringBuilder("java -jar target/DDLSmith.jar ").append(entry.engine);
         sb.append(" --random-seed ").append(entry.firstSeed);
+        if (entry.databasesPerGraph > 1) {
+            // the seed names the graph; the slot names the database of the group that failed
+            sb.append(" --databases-per-graph ").append(entry.databasesPerGraph);
+            sb.append(" --input-slot ").append(entry.firstInputSlot);
+        }
         if (options != null) {
             sb.append(" --num-tries 1");
             sb.append(" --min-node-num ").append(options.getMinNodeNum());
@@ -584,6 +593,13 @@ public final class BugRepository {
         private final String oracleName;
         private final String firstTitle;
         private final long firstSeed;
+        /**
+         * Which database of its graph group first exposed the defect, and how large that group was.
+         * The seed names the graph, so the slot is what makes the recorded command regenerate the
+         * database that actually failed rather than another interpretation of the same graph.
+         */
+        private final int firstInputSlot;
+        private final int databasesPerGraph;
         private final String firstDatabase;
         private final List<String> createStatements;
         private final Set<String> variants = new LinkedHashSet<>();
@@ -613,6 +629,8 @@ public final class BugRepository {
             this.oracleName = failure.getOracleName();
             this.firstTitle = failure.getTitle();
             this.firstSeed = failure.getSeed();
+            this.firstInputSlot = failure.getInputSlot();
+            this.databasesPerGraph = Math.max(1, failure.getDatabasesPerGraph());
             this.firstDatabase = state == null ? "unknown" : state.getDatabaseName();
             this.engineVersion = engineVersion == null ? "unknown" : engineVersion;
             this.details = failure.getDetails();
@@ -637,6 +655,9 @@ public final class BugRepository {
             this.oracleName = field(report, "Oracle");
             this.firstTitle = titleOf(report);
             this.firstSeed = number(report, "seed=(-?\\d+)");
+            this.firstInputSlot = (int) number(report, "slot=(\\d+)");
+            long group = number(report, "slot=\\d+/(\\d+)");
+            this.databasesPerGraph = (int) Math.max(1, group);
             this.firstDatabase = text(report, "database=([^\\s|,]+)");
             this.engineVersion = versionOf(report, engine);
             this.details = "";

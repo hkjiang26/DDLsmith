@@ -77,6 +77,36 @@ are analysed, with evidence and a fix, in [ER-GAPS.md](ER-GAPS.md) §A1 and §A3
 records that the subtype row's slot-sharing makes the subtype re-declare its parent's attributes,
 which the mapping then materializes twice ([B7](ER-GAPS.md)).
 
+### 1.4 One graph, several ER diagrams (two-level sampling)
+
+`--databases-per-graph K` (default 8) makes the pipeline sample on two levels instead of one. The graph
+- its schema and its instance - is generated from the seed of the group; the ER interpretation and the
+mapping decisions are drawn from a slot seed derived from that seed (`Pipeline.slotSeed`). The
+databases of a group therefore share their nodes and edges and differ in how they are read and mapped.
+
+The split follows what the decisions depend on, and that is why neither level replaces the other:
+
+* **Eligibility is decided by the graph.** Whether a label can become a weak entity, whether a
+  recursive type can become a multi-valued attribute, whether a triangle can become an aggregation or
+  a ternary relationship - all of that is a property of the generated instance. Re-rolling the
+  interpretation cannot change it (`detectWeakEntities` contains no coin at all); re-rolling the
+  instance (`--reroll-instance`) can.
+* **Activation is decided by the coins in the mapper and in `MappingOptions`** - whether an eligible
+  generalization really becomes one, which strategy maps a 1:1, which attribute becomes the key.
+
+Measured over generated groups, the two levels are complements rather than substitutes: different
+graphs support nearly disjoint sets of ER readings, while within one graph the structural readings
+saturate after a few hundred re-rolls (the mapping decisions keep varying much longer). That is why
+the group size is a knob and not a constant, and why the default is 8: at a fixed budget of 1024
+databases, 8 costs 11% repeated ER diagrams while 16 costs 21% and 32 costs 28%, and the number of
+distinct relational schemas stays at 100% for every group size (the measurements are in
+[ACCEPTANCE-EXPANSION.md](ACCEPTANCE-EXPANSION.md) §5.1).
+
+With `K == 1` nothing is re-seeded: the pipeline consumes the random stream exactly as it always has.
+That is the value to pass when regenerating a database recorded before this option existed - with the
+default of 8 the same seed produces the same graph but a different ER diagram. Databases recorded from
+now on carry the group size and the slot in their failure reports.
+
 ---
 
 ## 2. ER diagram → relational schema

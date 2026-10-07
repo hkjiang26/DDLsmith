@@ -63,6 +63,16 @@ public final class Main {
     private static volatile org.ddlsmith.bug.BugRepository bugRepositoryForSummary;
     private static final Map<String, AtomicLong> FAILURES_BY_KIND = new ConcurrentHashMap<>();
 
+    /**
+     * The distinct ER-diagram and relational-schema profiles the run produced.
+     *
+     * <p>They exist to make {@code --databases-per-graph} visible: a group of K databases shares one
+     * graph, so the graph shape repeats by construction and the summary has to report how much of the
+     * input space was actually new rather than how many databases were tested.</p>
+     */
+    public static final java.util.Set<String> distinctErProfiles = ConcurrentHashMap.newKeySet();
+    public static final java.util.Set<String> distinctSchemaProfiles = ConcurrentHashMap.newKeySet();
+
     static {
         System.setProperty(org.slf4j.impl.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, "ERROR");
         if (!LOG_DIRECTORY.exists() && !LOG_DIRECTORY.mkdir()) {
@@ -214,6 +224,11 @@ public final class Main {
         /** Writes a failure report to its own file and returns that file. */
         public File logFailure(OracleFailure failure, StateToReproduce state, String extraContext) {
             ensureExists(dir);
+            // A report has to identify its input on its own. The caller already knows the slot, but
+            // setting it here as well makes the log independent of which path filed the failure.
+            if (state != null) {
+                failure.setInputIdentity(state.getInputSlot(), options.getDatabasesPerGraph());
+            }
             String name = String.format("%s-failure-%03d-%s.log", databaseName, ++failureCounter,
                     failure.getKind().name().toLowerCase());
             File file = freeFile(dir, name);
@@ -260,6 +275,14 @@ public final class Main {
             StringBuilder sb = new StringBuilder();
             sb.append(provider.getLoggableFactory()
                     .getInfo(state.getDatabaseName(), state.getDatabaseVersion(), state.getSeedValue()).getLogString());
+            // The seed alone identifies the graph; when several databases share one graph, the slot
+            // says which of them this log is about. It is written into every log - the live trace, a
+            // failure report and a harness crash - for the same reason the seed is.
+            if (options.getDatabasesPerGraph() > 1) {
+                sb.append("-- slot    : ").append(state.getInputSlot()).append(" of ")
+                        .append(options.getDatabasesPerGraph())
+                        .append(" (this database shares its graph with the others of the group)\n");
+            }
             for (String statement : state.getStatements()) {
                 sb.append(statement).append('\n');
             }
@@ -287,16 +310,28 @@ public final class Main {
         private final O command;
         private final String databaseName;
         private final Randomly r;
+        /**
+         * Which database of its {@code --databases-per-graph} group this executor generates. The
+         * worker thread is seeded with the group's seed, so the pipeline needs the slot to know which
+         * interpretation of that shared graph this database stands for.
+         */
+        private final int inputSlot;
         private StateLogger logger;
         private StateToReproduce stateToRepro;
 
         public DBMSExecutor(DatabaseProvider<G, O, C> provider, MainOptions options, O command, String databaseName,
                 Randomly r) {
+            this(provider, options, command, databaseName, r, 0);
+        }
+
+        public DBMSExecutor(DatabaseProvider<G, O, C> provider, MainOptions options, O command, String databaseName,
+                Randomly r, int inputSlot) {
             this.provider = provider;
             this.options = options;
             this.command = command;
             this.databaseName = databaseName;
             this.r = r;
+            this.inputSlot = inputSlot;
         }
 
         private G createGlobalState() {
@@ -330,6 +365,7 @@ public final class Main {
             G state = createGlobalState();
             stateToRepro = provider.getStateToReproduce(databaseName);
             stateToRepro.seedValue = seed;
+            stateToRepro.inputSlot = inputSlot;
             state.setState(stateToRepro);
             logger = new StateLogger(databaseName, provider, options);
             state.setRandomly(new Randomly());
@@ -343,6 +379,7 @@ public final class Main {
             G state = createGlobalState();
             stateToRepro = provider.getStateToReproduce(databaseName);
             stateToRepro.seedValue = r.getSeed();
+            stateToRepro.inputSlot = inputSlot;
             state.setState(stateToRepro);
             logger = new StateLogger(databaseName, provider, options);
             state.setRandomly(r);
@@ -394,9 +431,17 @@ public final class Main {
         }
 
         public DBMSExecutor<G, O, C> getDBMSExecutor(String databaseName, Randomly r) {
+            return getDBMSExecutor(databaseName, r, 0);
+        }
+
+        /**
+         * @param inputSlot which database of its {@code --databases-per-graph} group the executor
+         *                  generates; every slot of a group shares the graph of the group's seed
+         */
+        public DBMSExecutor<G, O, C> getDBMSExecutor(String databaseName, Randomly r, int inputSlot) {
             try {
                 return new DBMSExecutor<>(provider.getClass().getDeclaredConstructor().newInstance(), options, command,
-                        databaseName, r);
+                        databaseName, r, inputSlot);
             } catch (Exception e) {
                 throw new AssertionError(e);
             }
@@ -432,6 +477,8 @@ public final class Main {
         nrGeneratedGraphs.set(0);
         threadsShutdown.set(0);
         FAILURES_BY_KIND.clear();
+        distinctErProfiles.clear();
+        distinctSchemaProfiles.clear();
         unavailableDatabases.set(0);
         List<DatabaseProvider<?, ?, ?>> availableProviders = getDBMSProviders();
         Map<String, DBMSExecutorFactory<?, ?, ?>> nameToProvider = new LinkedHashMap<>();
@@ -471,6 +518,24 @@ public final class Main {
         if (!nameToProvider.containsKey(dbmsName)) {
             System.err.println("unknown database '" + dbmsName + "'; available: "
                     + String.join(", ", nameToProvider.keySet()));
+            return 1;
+        }
+
+        // The group size decides how the seed is split into (graph, slot), so an unusable value has to
+        // be refused here rather than producing a silently different input. 999999 is the bound the slot
+        // mixing relies on: the slot is folded into the seed as seed * 1000000 + slot.
+        if (options.getDatabasesPerGraph() < 1) {
+            System.err.println("--databases-per-graph must be at least 1, but is " + options.getDatabasesPerGraph());
+            return 1;
+        }
+        if (options.getDatabasesPerGraph() > 999_999) {
+            System.err.println("--databases-per-graph must be at most 999999, but is "
+                    + options.getDatabasesPerGraph());
+            return 1;
+        }
+        if (options.getInputSlot() < 0 || options.getInputSlot() >= options.getDatabasesPerGraph()) {
+            System.err.println("--input-slot must be in [0, " + options.getDatabasesPerGraph() + "), but is "
+                    + options.getInputSlot());
             return 1;
         }
 
@@ -515,16 +580,23 @@ public final class Main {
         }
 
         ExecutorService execService = Executors.newFixedThreadPool(options.getNumberConcurrentThreads());
+        int databasesPerGraph = options.getDatabasesPerGraph();
         for (int i = 0; i < options.getTotalNumberTries(); i++) {
             final String databaseName = options.getDatabasePrefix() + i;
-            final long seed = options.getRandomSeed() == -1 ? System.currentTimeMillis() + i
-                    : options.getRandomSeed() + i;
+            // Databases of one group share the graph, so the worker is seeded with the group's seed and
+            // told which slot of that group it generates. The pipeline re-seeds itself for the ER
+            // interpretation and the mapping decisions afterwards; with a group size of 1 (the default)
+            // the slot is always 0 and the stream is the single one it has always been.
+            final int graphIndex = i / databasesPerGraph;
+            final int inputSlot = options.getInputSlot() != 0 ? options.getInputSlot() : i % databasesPerGraph;
+            final long seed = options.getRandomSeed() == -1 ? System.currentTimeMillis() + graphIndex
+                    : options.getRandomSeed() + graphIndex;
             execService.execute(() -> {
                 Thread.currentThread().setName(databaseName);
                 Randomly.setSeed(seed);
                 DBMSExecutor<?, ?, ?> executor = null;
                 try {
-                    executor = executorFactory.getDBMSExecutor(databaseName, new Randomly());
+                    executor = executorFactory.getDBMSExecutor(databaseName, new Randomly(), inputSlot);
                     executor.run();
                 } catch (DatabaseUnavailableException e) {
                     System.err.println("DDLSmith: " + e.getMessage());
@@ -575,6 +647,11 @@ public final class Main {
         System.out.println("target database   : " + command);
         System.out.println("seed              : " + (options.getRandomSeed() == -1 ? "time-based" : options.getRandomSeed()));
         System.out.println("databases         : " + options.getTotalNumberTries());
+        System.out.println("databases/graph   : " + options.getDatabasesPerGraph()
+                + (options.getDatabasesPerGraph() > 1
+                        ? " (one graph, " + options.getDatabasesPerGraph() + " ER interpretations"
+                                + (options.isRerollInstance() ? ", instance re-rolled per database)" : ")")
+                        : ""));
         System.out.println("statements/db     : " + options.getNumDdlStatements());
         System.out.println("entities/graph    : " + options.getMinNodeNum() + ".." + options.getMaxNodeNum());
         System.out.println("algorithm         : " + options.getAlgorithm());
@@ -598,9 +675,9 @@ public final class Main {
         }).scheduleAtFixedRate(() -> {
             DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
             System.out.println(String.format(
-                    "[%s] databases=%d statements=%d queries=%d failures=%d threads-done=%d",
-                    dateFormat.format(new Date()), nrDatabases.get(), nrSuccessfulActions.get(), nrQueries.get(),
-                    nrFailures.get(), threadsShutdown.get()));
+                    "[%s] databases=%d graphs=%d statements=%d queries=%d failures=%d threads-done=%d",
+                    dateFormat.format(new Date()), nrDatabases.get(), nrGeneratedGraphs.get(),
+                    nrSuccessfulActions.get(), nrQueries.get(), nrFailures.get(), threadsShutdown.get()));
         }, 10, 10, TimeUnit.SECONDS);
     }
 
@@ -612,6 +689,11 @@ public final class Main {
         System.out.println(formatInteger(nrSuccessfulActions.get()) + " successfully executed statements");
         System.out.println(formatInteger(nrQueries.get()) + " queries");
         System.out.println(formatInteger(nrGeneratedGraphs.get()) + " generated graphs");
+        // With a shared graph the number of databases says nothing about how much of the input space was
+        // reached, so the distinct shapes are reported next to it: the first line counts ER diagrams, the
+        // second the relational schemas they were mapped to.
+        System.out.println(formatInteger(distinctErProfiles.size()) + " distinct ER diagrams");
+        System.out.println(formatInteger(distinctSchemaProfiles.size()) + " distinct relational schemas");
         System.out.println(formatInteger(nrFailures.get()) + " failures");
         org.ddlsmith.bug.BugRepository bugs = bugRepositoryForSummary;
         if (bugs != null && bugs.isEnabled()) {

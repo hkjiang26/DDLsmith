@@ -150,6 +150,21 @@ public class MainOptions {
     @Parameter(names = "--max-constraint-probes", description = "The maximum number of constraint probes executed per database.")
     private int maxConstraintProbes = 25;
 
+    @Parameter(names = "--databases-per-graph", description = "How many databases share one generated graph: the graph is "
+            + "generated once per group of this many databases, and each database re-draws the ER interpretation and "
+            + "the mapping decisions. Default 8; pass 1 to restore the historic one-graph-per-database behaviour "
+            + "(needed to regenerate databases recorded before this option existed).")
+    private int databasesPerGraph = 8;
+
+    @Parameter(names = "--reroll-instance", description = "With --databases-per-graph > 1: re-generate the graph "
+            + "instance for every database of the group as well, keeping only the graph schema fixed. This reaches "
+            + "instance-locked ER features (weak entities, identifying relationships) inside one schema.")
+    private boolean rerollInstance;
+
+    @Parameter(names = "--input-slot", description = "Which database of a --databases-per-graph group to generate, "
+            + "used to replay the exact input of a single database. Default 0.")
+    private int inputSlot;
+
     @Parameter(names = "--host", description = "The host of the database server (for client/server engines).")
     private String host = "localhost";
 
@@ -231,6 +246,30 @@ public class MainOptions {
 
     public int getMaxConstraintProbes() {
         return maxConstraintProbes;
+    }
+
+    public int getDatabasesPerGraph() {
+        return databasesPerGraph;
+    }
+
+    public void setDatabasesPerGraph(int databasesPerGraph) {
+        this.databasesPerGraph = databasesPerGraph;
+    }
+
+    public boolean isRerollInstance() {
+        return rerollInstance;
+    }
+
+    public void setRerollInstance(boolean rerollInstance) {
+        this.rerollInstance = rerollInstance;
+    }
+
+    public int getInputSlot() {
+        return inputSlot;
+    }
+
+    public void setInputSlot(int inputSlot) {
+        this.inputSlot = inputSlot;
     }
 
     public void setCompareWith(List<String> compareWith) {

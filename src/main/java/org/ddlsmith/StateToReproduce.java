@@ -12,6 +12,12 @@ public class StateToReproduce {
     public String databaseName;
     public String databaseVersion;
     public long seedValue;
+    /**
+     * Which database of a {@code --databases-per-graph} group this one is. All databases of a group
+     * share the graph their seed names and differ only in this slot, so it is part of the identity of
+     * the input and is recorded in failure reports next to the seed.
+     */
+    public int inputSlot;
     public String exception;
 
     /** The full DDL/DML script executed for this database. */
@@ -56,5 +62,9 @@ public class StateToReproduce {
 
     public long getSeedValue() {
         return seedValue;
+    }
+
+    public int getInputSlot() {
+        return inputSlot;
     }
 }

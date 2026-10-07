@@ -6,6 +6,7 @@ import java.util.List;
 import org.ddlsmith.GlobalState;
 import org.ddlsmith.Main;
 import org.ddlsmith.MainOptions;
+import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.ddl.Dialect;
 import org.ddlsmith.ddl.gen.SchemaAdapter;
@@ -84,14 +85,36 @@ public final class Pipeline {
         MainOptions options = state.getOptions();
         Generated generated = new Generated();
 
+        // The worker thread is seeded with the seed of the graph this database belongs to. With
+        // --databases-per-graph K > 1 every database of a group starts from that same seed, so all K of
+        // them build the same graph schema and - unless --reroll-instance is on - the same graph
+        // instance. The stream is then re-seeded per slot, so the ER interpretation and the mapping
+        // decisions differ across the group: one graph becomes K databases instead of one. With K == 1
+        // (the default) no re-seed happens at all and the stream is the single one it has always been.
+        long graphSeed = Randomly.getSeed();
+        int databasesPerGraph = Math.max(1, options.getDatabasesPerGraph());
+        int slot = state.getState() == null ? 0 : state.getState().getInputSlot();
+        boolean sharedGraph = databasesPerGraph > 1;
+
         generated.graphSchema = new RandomGraphSchemaGenerator().generate();
 
         GraphGenerationOptions graphOptions = new GraphGenerationOptions()
                 .setMinNodes(options.getMinNodeNum())
                 .setMaxNodes(options.getMaxNodeNum());
         GraphGenerator generator = resolveGenerator(options.getGraphGenerator());
+        if (sharedGraph && options.isRerollInstance()) {
+            // the schema stays, the instance is drawn again for this slot: this is what reaches the ER
+            // features the instance locks in (weak entities, identifying relationships)
+            Randomly.setSeed(slotSeed(graphSeed, slot));
+        }
         generated.graph = generator.generate(generated.graphSchema, graphOptions);
-        Main.nrGeneratedGraphs.incrementAndGet();
+        if (slot == 0) {
+            // one generated graph per group; the other databases of the group only re-interpret it
+            Main.nrGeneratedGraphs.incrementAndGet();
+        }
+        if (sharedGraph && !options.isRerollInstance()) {
+            Randomly.setSeed(slotSeed(graphSeed, slot));
+        }
 
         generated.erDiagram = new DefaultGraphToERMapper().map(generated.graph, generated.graphSchema);
 
@@ -112,6 +135,12 @@ public final class Pipeline {
 
         generated.adaptedSchema = SchemaAdapter.adapt(generated.mappedSchema, dialect, generated.notes);
 
+        // Coverage accounting for the summary: how much of the input space was new. Sharing one graph
+        // between several databases makes the graph shape repeat by construction, so the number of
+        // generated databases alone would hide how much variety the run actually reached.
+        Main.distinctErProfiles.add(generated.erDiagram.getStatistics().toString());
+        Main.distinctSchemaProfiles.add(generated.adaptedSchema.getStatistics().toString());
+
         state.setCurrentGraph(generated.graph);
         state.setCurrentERDiagram(generated.erDiagram);
         state.setCurrentSchema(generated.adaptedSchema);
@@ -121,6 +150,16 @@ public final class Pipeline {
         state.getAdaptationNotes().addAll(generated.notes);
         state.setDialect(dialect);
         return generated;
+    }
+
+    /**
+     * @return the seed of one database of a graph group. Every slot draws a different stream, and the
+     *         multiplication keeps the slots of one graph apart from the graphs themselves; the group
+     *         size is bounded by 999999 exactly so that this stays injective over the seed range the
+     *         tool uses (see {@code MainOptions#getDatabasesPerGraph}).
+     */
+    public static long slotSeed(long graphSeed, int slot) {
+        return graphSeed * 1_000_000L + slot;
     }
 
     /**
@@ -175,7 +214,8 @@ public final class Pipeline {
                 .setMappingOptions(generated.mappingOptions)
                 .setOptions(state.getOptions())
                 .setStateToReproduce(state.getState())
-                .setSeed(seed);
+                .setSeed(seed)
+                .setInputSlot(state.getState() == null ? 0 : state.getState().getInputSlot());
         return context;
     }
 }

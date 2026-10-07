@@ -134,6 +134,12 @@ public abstract class AbstractJdbcProvider
         if (failures.isEmpty()) {
             return;
         }
+        // Every report has to identify the input that produced it. The seed names the graph; with
+        // --databases-per-graph the database is one interpretation of that graph, so the slot belongs
+        // next to the seed or the report cannot be turned back into the same database.
+        for (OracleFailure failure : failures) {
+            failure.setInputIdentity(state.getState().getInputSlot(), state.getOptions().getDatabasesPerGraph());
+        }
         String context = Pipeline.describe(state);
         org.ddlsmith.bug.BugRepository bugs = org.ddlsmith.bug.BugRepository.forOptions(state.getOptions());
         String version = state.getState().getDatabaseVersion();

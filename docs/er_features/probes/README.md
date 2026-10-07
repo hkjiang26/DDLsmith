@@ -1,8 +1,10 @@
 # ER feature probes
 
-Eight standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
-actually reaches, and which it silently loses. They are the evidence behind
-[../../ER-GAPS.md](../../ER-GAPS.md) and [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md); they
+Nine standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
+actually reaches, which it silently loses, and how much input variety a database buys. They are the
+evidence behind [../../ER-GAPS.md](../../ER-GAPS.md),
+[../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) and
+[../../ACCEPTANCE-EXPANSION.md](../../ACCEPTANCE-EXPANSION.md); they
 are deliberately **not** part of the Maven build, so they can be read and run without touching the
 test suite.
 
@@ -32,6 +34,8 @@ E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErConstructProbe
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErOneSeedDump random 3
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErMappingShapeProbe
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErMergeProbe 800
+E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" KProbe 1024 1,2,4,8,16,32
+E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" KProbe 1024 1,4,8,16 --reroll-instance
 ```
 
 The first argument of the counting probes is the number of seeds per graph generator (6 generators,
@@ -52,6 +56,7 @@ the number of pipeline runs and an optional seed base.
 | `ErOneSeedDump` | What does one concrete seed's ER diagram look like next to its three ISA mappings? | the worked example in B7 |
 | `ErMappingShapeProbe` | For the ER constructs the random pipeline reaches only rarely (or never), what does the mapper produce — and what does the merged table look like as DDL? | §2.1–§2.14 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
 | `ErMergeProbe` | What does the 1:1 `MERGE_TABLES` strategy cost across the real pipeline: foreign keys and CHECKs swallowed with the removed table, merges that force a partially-participating entity to exist, 1:1s mapped to nothing, double identity columns, dangling generated-column references? | §2.1, §2.2, §2.3, §2.11 and the generated-column row of §3 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
+| `KProbe` | At a fixed database budget, what does each `--databases-per-graph` value reach — distinct graph schemas, distinct ER diagrams, distinct coarse ER feature vectors, distinct relational schemas, repeat rate — with and without `--reroll-instance`? | §5.1 of [../../ACCEPTANCE-EXPANSION.md](../../ACCEPTANCE-EXPANSION.md) (the cost curve behind the default of 8) |
 
 ## Interpreting the output
 

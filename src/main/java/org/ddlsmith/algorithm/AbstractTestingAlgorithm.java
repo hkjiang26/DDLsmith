@@ -255,6 +255,12 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
         lines.add("-- dialect  : " + database.getDialect().getName());
         lines.add("-- version  : " + database.getDatabaseVersion());
         lines.add("-- seed     : " + options.getRandomSeed());
+        if (options.getDatabasesPerGraph() > 1) {
+            // The dump has to identify the input on its own: with a shared graph the run seed is not
+            // enough, because several databases were generated from it.
+            lines.add("-- graph seed: " + context.getSeed());
+            lines.add("-- slot     : " + context.getInputSlot() + " of " + options.getDatabasesPerGraph());
+        }
         lines.add("-- objects  : tables=" + database.getIntendedSchema().getTables().size()
                 + " views=" + database.getIntendedSchema().getViews().size()
                 + " sequences=" + database.getIntendedSchema().getSequences().size());

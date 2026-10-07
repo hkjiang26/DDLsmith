@@ -36,11 +36,34 @@ public final class DDLOnly {
             System.err.println("DDLSmith: " + e.getMessage());
             return 1;
         }
+        // With --databases-per-graph K every slot of the group is printed: this is the mode that turns
+        // one generated graph into a corpus of scripts, so printing only one of them would hide exactly
+        // what the option is for. The graph seed is the one a --num-tries 1 run would use, so a script
+        // can be regenerated from the seed printed next to it.
+        int databasesPerGraph = Math.max(1, options.getDatabasesPerGraph());
+        long graphSeed = options.getRandomSeed() == -1 ? System.currentTimeMillis() : options.getRandomSeed();
+        // --input-slot picks one database of the group instead of the whole group, exactly as it does
+        // for a real run: it is how a single printed script is regenerated from its seed.
+        int firstSlot = options.getInputSlot() != 0 ? options.getInputSlot() : 0;
+        int lastSlot = options.getInputSlot() != 0 ? options.getInputSlot() + 1 : databasesPerGraph;
+        for (int slot = firstSlot; slot < lastSlot; slot++) {
+            int exitCode = printOne(options, dialect, graphSeed, slot, databasesPerGraph);
+            if (exitCode != 0) {
+                return exitCode;
+            }
+        }
+        return 0;
+    }
+
+    /** Prints the DDL of one database: the graph of {@code graphSeed}, read as slot {@code slot}. */
+    private static int printOne(MainOptions options, Dialect dialect, long graphSeed, int slot,
+            int databasesPerGraph) {
         List<String> notes = new ArrayList<>();
         RelationalSchema adapted;
         Pipeline.Generated generated;
         try {
-            generated = generateFor(dialect, options);
+            Randomly.setSeed(graphSeed);
+            generated = generateFor(dialect, options, slot);
             adapted = generated.adaptedSchema;
         } catch (RuntimeException e) {
             System.err.println("DDLSmith could not generate a schema: " + e);
@@ -53,6 +76,10 @@ public final class DDLOnly {
         System.out.println("-- generator: " + options.getGraphGenerator() + " (available: " + GraphGenerators.names()
                 + ")");
         System.out.println("-- seed     : " + (options.getRandomSeed() == -1 ? "time-based" : options.getRandomSeed()));
+        if (databasesPerGraph > 1) {
+            System.out.println("-- graph seed: " + graphSeed);
+            System.out.println("-- slot     : " + slot + " of " + databasesPerGraph);
+        }
         System.out.println("-- graph    : " + generated.graph);
         System.out.println("-- ER       : " + generated.erDiagram.getStatistics());
         System.out.println("-- mapping  : " + generated.mappingOptions.describe());
@@ -91,8 +118,11 @@ public final class DDLOnly {
     }
 
     /** Runs the generation pipeline without a database, using a state-less dialect. */
-    private static Pipeline.Generated generateFor(Dialect dialect, MainOptions options) {
-        return Pipeline.generate(new HeadlessState(options), dialect);
+    private static Pipeline.Generated generateFor(Dialect dialect, MainOptions options, int slot) {
+        HeadlessState state = new HeadlessState(options);
+        state.getState().inputSlot = slot;
+        state.getState().seedValue = Randomly.getSeed();
+        return Pipeline.generate(state, dialect);
     }
 
     /** A global state with no connection, used by the DDL-only mode. */
