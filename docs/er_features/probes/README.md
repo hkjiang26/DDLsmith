@@ -1,9 +1,10 @@
 # ER feature probes
 
-Six standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
+Eight standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
 actually reaches, and which it silently loses. They are the evidence behind
-[../../ER-GAPS.md](../../ER-GAPS.md); they are deliberately **not** part of the Maven build, so they
-can be read and run without touching the test suite.
+[../../ER-GAPS.md](../../ER-GAPS.md) and [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md); they
+are deliberately **not** part of the Maven build, so they can be read and run without touching the
+test suite.
 
 They are plain `main` programs with no test-runner dependency. They use the compiled main classes and
 the public API only (`Randomly`, `graph.gen.*`, `ermodel.*`, `mapping.impl.*`).
@@ -29,11 +30,15 @@ E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErAttributeLossPro
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErInheritanceProbe 200
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErConstructProbe
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErOneSeedDump random 3
+E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErMappingShapeProbe
+E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" ErMergeProbe 800
 ```
 
 The first argument of the counting probes is the number of seeds per graph generator (6 generators,
 so `200` means 1 200 diagrams). `ErConstructProbe` ignores it and runs ten hand-built diagrams;
-`ErOneSeedDump` takes a generator name and a seed.
+`ErOneSeedDump` takes a generator name and a seed; `ErMappingShapeProbe` ignores it and runs twenty-one
+hand-built diagrams (nineteen numbered scenarios, two of them with two mappings); `ErMergeProbe` takes
+the number of pipeline runs and an optional seed base.
 
 ## What each one answers
 
@@ -45,6 +50,8 @@ so `200` means 1 200 diagrams). `ErConstructProbe` ignores it and runs ten hand-
 | `ErInheritanceProbe` | Do subtypes re-declare their supertype's attributes, and does the merge then emit duplicate columns? Are the attributes of a merged 1:1 lost? | B7 (**fixed**: 0), B8 (**fixed**: 0) |
 | `ErConstructProbe` | For constructs the random pipeline cannot produce, what does the mapper do with a hand-built diagram? | A4, A5, A6, A7, A9, A12, A13, A16, A17, B5 |
 | `ErOneSeedDump` | What does one concrete seed's ER diagram look like next to its three ISA mappings? | the worked example in B7 |
+| `ErMappingShapeProbe` | For the ER constructs the random pipeline reaches only rarely (or never), what does the mapper produce — and what does the merged table look like as DDL? | §2.1–§2.14 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
+| `ErMergeProbe` | What does the 1:1 `MERGE_TABLES` strategy cost across the real pipeline: foreign keys and CHECKs swallowed with the removed table, merges that force a partially-participating entity to exist, 1:1s mapped to nothing, double identity columns, dangling generated-column references? | §2.1, §2.2, §2.3, §2.11 and the generated-column row of §3 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
 
 ## Interpreting the output
 
@@ -66,6 +73,19 @@ so `200` means 1 200 diagrams). `ErConstructProbe` ignores it and runs ten hand-
   *sibling* subtypes each declare an attribute of that name: the ER diagram really does declare two
   distinct attributes there, so two columns is the correct mapping. `1:1 MERGE_TABLES … lost` counts
   B8 and is **zero since B8 was fixed** (it was 1 172 of 1 172).
+
+* `ErMergeProbe` prints one line per measurement. `merged tables` should equal the number of
+  successful merges; the three `lost …` lines are **non-zero and are the defect** — they count
+  foreign keys and CHECK constraints that disappeared with the table a merge removed.
+  `... that force the away entity to exist` is a defect whenever it is non-zero, because a merged
+  table whose second entity has NOT NULL key columns cannot represent an instance of the first entity
+  without a partner. `1:1 relationships merged to nothing at all` counts relationships the mapper
+  recorded as mapped but never represented. `referencing a column missing from their table` must stay
+  zero: a generated column whose expression names a column the table does not have makes the
+  `CREATE TABLE` fail, and the crash oracle would then blame the engine.
+  Draw `MappingOptions.random()` **after** the graph and ER diagram, as `Pipeline.generate` does:
+  the first `java.util.Random` values of consecutive seeds are correlated, so drawing it first makes
+  one 1:1 strategy dominate the whole sweep.
 
 ## Note
 
