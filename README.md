@@ -267,22 +267,22 @@ java -jar target/DDLSmith.jar postgres --algorithm differential --compare-with p
 | H2 | embedded, always available | strict, standards-oriented DDL; 86 of 109 DDL features declared, each derived from an empirical probe |
 | DuckDB | embedded, always available | deliberately partial DDL support; 72 features declared, each derived from an empirical probe |
 | PostgreSQL | client/server | the richest DDL support (100 features); run against a live 18.6 server — eight server-only defects found and fixed; every generated database gets a schema of its own, so a 20-database run creates 20 schemas and no longer collides |
-| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B (see [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md)) |
+| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B (see [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md)); three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 and [runs/mysql-campaign/12h-b/REPORT.md](runs/mysql-campaign/12h-b/REPORT.md) |
 
 ## 10. Verified results
 
 Everything below was measured on the committed code, not projected.
 
-**Unit and component tests — 295 tests, 0 failures** (`mvn test`):
+**Unit and component tests — 304 tests, 0 failures** (`mvn test`):
 
 | Suite | Tests | What it covers |
 | ----- | ----- | -------------- |
 | `GraphGenerationTest` | 20 | cardinality/participation validity for 6 generators × 200 seeds; property typing; ER mapper invariants; the EER features the mapper derives (ternary, aggregation, category, shared subclass, composite and partial keys, nested and multi-valued composites, specialization completeness) |
-| `MappingTest` | 26 | all 10 mapping-strategy enums in a full cartesian product; 300 random option sets; schema invariants; the enhanced constructs (shared subclass under every ISA strategy, category, aggregation, partial specialization, nested composites) |
+| `MappingTest` | 27 | all 10 mapping-strategy enums in a full cartesian product; 300 random option sets; schema invariants; the enhanced constructs (shared subclass under every ISA strategy, category, aggregation, partial specialization, nested composites); a generated category row satisfies its own union-membership check |
 | `SqliteDialectTest` / `H2DialectTest` / `DuckDbDialectTest` | 15 / 20 / 29 | type round trips, schema round trips, feature probes, ALTER round trips |
 | `PostgresDialectTest` / `MySqlDialectTest` | 27 / 32 | exact-SQL rendering assertions and type round trips (no live server) |
 | `SchemaOracleTest` / `ConstraintOracleTest` | 21 / 10 | each oracle in both directions against real in-memory SQLite and H2; the referential-action probes skip a parent key that is itself a foreign key column (MySQL 1452) |
-| `RandomlyTest`, `SchemaNormalizerTest`, `SchemaAdapterTest`, `RandomDDLGeneratorTest`, `CheckExpressionAnalyzerTest` | 8 / 20 / 12 / 6 / 8 | seeded reproducibility, schema comparison (including the `IN`-list spacing H2 uses), capability adaptation, DDL-model consistency |
+| `RandomlyTest`, `SchemaNormalizerTest`, `SchemaAdapterTest`, `RandomDDLGeneratorTest`, `CheckExpressionAnalyzerTest` | 8 / 20 / 12 / 6 / 10 | seeded reproducibility, schema comparison (including the `IN`-list spacing H2 uses), capability adaptation, DDL-model consistency, and the top-level `AND`/`OR` splitting the row generator relies on |
 | `PivotRowOracleCanonicalTest` | 5 | the canonical form a key tuple is compared in: the model's `Timestamp` and the driver's `LocalDateTime` describe the same stored value, and a value the engine really coerced still differs |
 | `IntegrationRegressionTest` | 7 | the defects that only a whole schema or a whole run could reveal: colliding index identities, unindexable key types and their propagation to referencing columns, DDL dumping, comment-only renderings, replayable failure logs, the parenthesised disjunction DuckDB reports, and a differential run reading each engine's own namespace |
 | `RunTerminationTest` | 1 | a multi-threaded run terminates once every database has been tested |
@@ -300,8 +300,9 @@ engines with **0 differences**.
 **The enhanced ER layer — measured on this build, not projected.** The feature catalogue it
 implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
 
-* `mvn test` — **295 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
-  type, shared subclass, composite keys, nested composites, specialization completeness);
+* `mvn test` — **304 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
+  type, shared subclass, composite keys, nested composites, specialization completeness) and the
+  category union-membership check a generated row has to satisfy;
 * the graph self-check — **1 200 diagrams** (6 generators × 200 seeds) plus a 720-diagram option
   matrix, **0 invariant failures**, and every EER feature observed;
 * the mapping self-check — **55 212 mappings** over 10 368 strategy combinations and 9 diagram
@@ -446,6 +447,56 @@ relevant module's self-check:
   cascade, it acts like `RESTRICT`"). Found by the `referential-action` oracle in generated databases
   with a recursive relationship; filed as `bugs/mysql/001`, and the MySQL self-check pins the rule
   with a live probe so a later version that starts cascading is reported as a change.
+* **MySQL 26.7.0 refuses a cascading delete outright once a self-referencing `ON DELETE CASCADE` chain
+  is three rows deep.** Two tables, and the statement is rejected without deleting anything:
+
+  ```sql
+  CREATE TABLE p (id BIGINT NOT NULL, up BIGINT, PRIMARY KEY (id),
+    CONSTRAINT fk_up FOREIGN KEY (up) REFERENCES p (id) ON DELETE CASCADE);
+  CREATE TABLE c (id BIGINT NOT NULL, pid BIGINT, PRIMARY KEY (id),
+    CONSTRAINT fk_c FOREIGN KEY (pid) REFERENCES p (id) ON DELETE CASCADE);
+  INSERT INTO p VALUES (1, NULL), (2, 1), (3, 2);
+  INSERT INTO c VALUES (1, 1), (2, 2), (3, 3);
+  DELETE FROM p WHERE id = 1;
+  -- ERROR 6575 (HY000): Foreign key cascade delete/update exceeds max tables limit of 30.
+  ```
+
+  A two-row chain cascades; a three-row chain is refused. The number of *tables* is irrelevant — five
+  child tables behave exactly like one, so the message's "tables limit" is not what the engine counted —
+  and the self-reference only matters when it cascades. It is a **regression in the SQL-engine foreign
+  key path MySQL 9.6 introduced**: MySQL 8.0.28 accepts the delete and removes every row, and so does
+  26.7.0 itself when started with `innodb_native_foreign_keys=TRUE`. Filed as `bugs/mysql/003`, and
+  pinned by `MySqlSelfCheck.checkCascadeDeleteChainRule`, which asserts the refusal on the SQL-engine
+  path and the correct behaviour on the InnoDB path.
+* **MySQL 26.7.0 does not enforce a self-referencing *composite* foreign key at all.** The table
+  accumulates rows whose key columns are all non-NULL and have no parent — so this is not the
+  `MATCH SIMPLE` case, which permits only an all-or-partially-NULL composite key:
+
+  ```sql
+  -- the exact definition the engine reports for a generated schema
+  CREATE TABLE t_4 (…, a12 tinyint(1) NOT NULL, a13 bigint NOT NULL,
+    e4_dst_a12 tinyint(1), e4_dst_a13 bigint, PRIMARY KEY (a12, a13),
+    KEY fk_t_4_0 (e4_dst_a12, e4_dst_a13), KEY idx_t_4_0 (…), KEY idx_t_4_1 (…), KEY idx_t_4_2 (…),
+    CONSTRAINT fk_t_4_0 FOREIGN KEY (e4_dst_a12, e4_dst_a13) REFERENCES t_4 (a12, a13));
+  INSERT INTO t_4 (…) VALUES (…, TRUE, 565, …, TRUE, 9223372036854775806, …);
+  -- accepted on the SQL-engine path, ERROR 1452 on the InnoDB path
+  ```
+
+  The trigger needs a self-referencing composite key in a table that also carries additional indexes
+  over the foreign key columns: dropping those indexes, using `INT` key columns, making the key
+  non-self-referencing or putting it on a `UNIQUE` key all make the engine reject the row correctly.
+  Filed as `bugs/mysql/004`; found by the `constraint-enforcement` oracle, and invisible to every
+  catalog-reading oracle — `TABLE_CONSTRAINTS`, `REFERENTIAL_CONSTRAINTS` and `SHOW CREATE TABLE` all
+  report the constraint that is not being checked.
+* **The three MySQL defects above live in one place, and no catalog can see any of them.** `bugs/mysql/002`
+  (a single-column foreign key skipped once a NULL appears in an unrelated column of the index serving
+  it), `003` and `004` are all in the SQL-engine foreign key path introduced in MySQL 9.6, and each of
+  them leaves the catalog reporting a constraint the engine does not honour. Only an oracle that *tries
+  to violate a constraint* finds them — which is why the twelve-hour bug-hunting campaign of 2026-10-06
+  gave the `constraint-enforcement` family three of its ten categories and ran the same seed blocks
+  against both foreign key paths of one server version, so that a disagreement between them needs no
+  cross-version confound. See [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md) and
+  [runs/mysql-campaign/12h-b/REPORT.md](runs/mysql-campaign/12h-b/REPORT.md).
 * **DuckDB does not preserve character lengths or numeric precision**: `VARCHAR(3)` is stored and
   reported as `VARCHAR`, so its schema comparison falls back to type categories.
 
@@ -522,9 +573,15 @@ One area is still **experimental** and off by default:
   row that references itself for a child row (5), no longer reads `ON DELETE` when it asks about an
   `ON UPDATE` (6), no longer looks the parent column name up in a map keyed by the child column name
   (20), no longer forgets that a second foreign key can protect the parent row (13), and no longer
-  treats `NO ACTION` as if it were `RESTRICT` (1). `--oracle ALL` then ran 1 178 databases with 2
-  findings, both of them engine behaviour with a minimal reproduction — but the expectation model is
-  still separate from the row generator's, so a green run is a strong signal rather than a proof.
+  treats `NO ACTION` as if it were `RESTRICT` (1). The twelve-hour MySQL campaign of 2026-10-06 removed
+  two more, both found by the campaign's own census rather than by a hand-built fixture: the row
+  generator no longer emits a row that violates a declared `CHECK` — the union-membership constraint of a
+  category is an *at-least-one* disjunction, which the generator used to skip because it understood
+  single-column predicates only — and the referential-action oracle no longer counts child rows for a
+  cascading delete whose parent table cascades to itself, a shape in which the engine legitimately removes
+  a child row the count cannot see. `--oracle ALL` then ran 1 178 databases with 2 findings, both of them
+  engine behaviour with a minimal reproduction — but the expectation model is still separate from the row
+  generator's, so a green run is a strong signal rather than a proof.
 
 PostgreSQL and MySQL have **now been run against a live server** (PostgreSQL 18.6, MySQL 26.7.0, in
 disposable containers — see [docs/ACCEPTANCE-2.md](docs/ACCEPTANCE-2.md) §8.1). The first live run

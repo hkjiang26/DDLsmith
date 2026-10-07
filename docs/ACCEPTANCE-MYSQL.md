@@ -816,3 +816,95 @@ pwsh -File runs\mysql-campaign\run-mysql-round.ps1 -Round mysql5 `
 
 吞吐：`mysql` 类别 492 库用 1 041 s（六类并行、8 线程），约 0.47 库/秒；整轮墙钟约 35 分钟，含分块间
 命名空间回收与结束时普查。
+
+---
+
+## 13. 缺陷挖掘轮：12 小时，两个引擎缺陷（2026-10-06）
+
+§1–§12 回答的是「工具在 MySQL 上是不是绿的」，答案是肯定的。这一轮换了一个问题：**MySQL 还错在哪**。
+类别组合因此按「历史上真正找出过引擎缺陷的是什么」来选，而组合本身就是被检验的变量。完整报告见
+[runs/mysql-campaign/12h-b/REPORT.md](../runs/mysql-campaign/12h-b/REPORT.md)，逐条定性见同目录的
+[CLASSIFICATION.md](../runs/mysql-campaign/12h-b/CLASSIFICATION.md)。
+
+### 13.1 设计：两个实例、同一版本
+
+MySQL 9.6 把外键强制与级联处理从 InnoDB 搬进了 SQL 引擎，`innodb_native_foreign_keys` 是回到旧路径的
+开关。**同一版本的同一台服务器上同时存在这两条实现**，因此让它们对同一份 schema 各自作答，两条路径的
+分歧就必然是其中一条的缺陷，且不含跨版本混杂因素。本轮起了第二个实例（`:33307`，
+`--innodb_native_foreign_keys=TRUE`）作为对照，并把三个类别对（`constraints`/`native`、
+`constraints-deep`/`native-deep`、`native-evolution`/`evolution-deep`）设为**同一批种子、同一个图生成器**，
+使差异只可能来自外键路径。
+
+同时**去掉了 `printddl`**：上一轮它渲染了 46 769 份 schema、两次打印逐字相同、问题为 0，而且它从不连接
+服务器，找不出引擎缺陷。它的预算转给了真正会去违反约束的那些 oracle。
+
+### 13.2 两个新的引擎缺陷
+
+| 归档 | 形态 | 路径 | 判定 |
+| ---- | ---- | ---- | ---- |
+| [`bugs/mysql/004`](../bugs/mysql/004-self-referencing-composite-foreign-key-not-enforced.md) | **自引用的复合外键完全不强制**：两个键列都非 NULL、父行不存在，行照样写进去，表里不断堆积悬挂行 | 仅 SQL 引擎路径 | 已确认，最小复现确定可重复 |
+| [`bugs/mysql/003`](../bugs/mysql/003-cascading-delete-refused-when-a-self-referencing-cascade-chain-is-three-rows-deep.md) | **自引用 `ON DELETE CASCADE` 的链到三行时，级联删除被整条拒绝**（`ERROR 6575`，两行可以、三行不行，且什么都不删） | 仅 SQL 引擎路径 | 已确认，8.0.28 与本机 InnoDB 路径均正常 |
+
+两条都是**回归**，而且都不在目录里可见：`TABLE_CONSTRAINTS`、`REFERENTIAL_CONSTRAINTS` 与
+`SHOW CREATE TABLE` 都照常报告那个根本没被执行的约束。加上上一轮归档的 `bugs/mysql/002`，
+**三个缺陷全部位于 9.6 新引入的 SQL 引擎外键路径，且没有一条能被读目录的 oracle 发现**——只有"真的去
+违反约束"的 oracle 能找到。这就是本轮把 `constraint-enforcement` 系列给了十个类别中的三个的理由。
+
+`004` 的触发条件**尚未完全隔离**：确定需要**自引用的复合**外键（非自引用、单列、建在 `UNIQUE` 键上的
+变体都被正确拒绝），但除此之外的区分条件未确定。早先一次读数提示"表上额外的、覆盖外键列的索引"是必要条件，
+**后来对同一组对照更仔细地重跑（`probe-distinct.sql`）显示两种变体都被接受，因此该说法已撤回**；剩余差异在
+键列的类型与取值上，未进一步隔离。**机理未确定**，报告里也这么写。
+
+### 13.3 工具自身的缺陷：两个 oracle 期望模型与一处恒红自检
+
+* **`referential-action` 的级联期望模型只有一层**。`cascadingRemovalCount` 只数"通过子表的级联键到达被删
+  父行"的子行，不跟着级联再走一层；于是当父表自身还有自引用 `ON DELETE CASCADE` 时，被级联删掉的孙行
+  及其子行从未被计入。`probe-cascade-model.sql` 把这个形状搭出来并同时打印模型与引擎的答案（两条路径
+  完全一致）：模型期望剩 2 行，引擎剩 1 行。**引擎是对的，模型少算了一层。** 这一条正是发现 `003` 的入口。
+* **InnoDB 的 3 072 字节键宽上限没有建模**。适配器建了 16 列上限（`maxIndexColumns`），没有建键宽上限，
+  于是映射层会发出引擎建不起来的复合自然键（`ERROR 1071`）。更麻烦的是**失败报告没有说出自己的原因**：
+  它指责的是那条成功的 `ALTER TABLE`，而被拒的 `CREATE TABLE` 只有读日志开头并去问服务器才看得见。
+* **一处恒红的自检**：`checkForeignKeyIndexRebindingRule` 原来只按版本串（`startsWith("26.7")`）设限，
+  于是在 InnoDB 路径的对照服务器上——那里引擎是对的——它仍然断言 `bugs/mysql/002` 存在，自检**永远是红的**。
+  已修：新增 `usesNativeForeignKeyPath`，两个探针都改为按**外键路径**设限。
+
+### 13.4 新增的自检探针
+
+`MySqlSelfCheck` 新增两条对着活库提问的探针，把两个新缺陷钉住，使"某个 MySQL 版本把它修好了"会**让自检
+失败**，而不是让 oracle 悄悄变安静：
+
+```
+-- a cascading delete over a self-referencing hierarchy --
+  server 26.7.0, innodb_native_foreign_keys=OFF (the SQL-engine path)
+  chain of 2 rows -> accepted, 0 parent row(s) left
+  chain of 3 rows -> refused 6575, 3 parent row(s) and 3 child row(s) left
+419 assertions, 0 failure(s)          ← SQL 引擎路径
+413→417 assertions, 0 failure(s)      ← InnoDB 路径，断言的是相反的行为
+```
+
+两条探针都带对照，因此不会"靠拒绝一切"而通过：部分 NULL 的复合键必须仍然被接受（`MATCH SIMPLE`），
+合法子行必须仍然被接受。
+
+### 13.5 工具为什么没自己报出 `003`（已定位，未修）
+
+`referential-action` 确实会探自引用 `ON DELETE CASCADE` 上的删除，但当"唯一引用父行的行就是父行自己"时
+它**正确地**跳过。每一轮的每一个含递归关系的库都命中这条守卫。读 `RowGenerator.resolveForeignKeys` 可以
+解释原因：它从"表里已有的行"里挑父行，而这个集合**包含正在构造的这一行**——该行的键列此时已经赋值——
+一旦挑中自己，外键列就被写成自己的键值，于是这一行成了自引用行，也就不再是"级联可以从它出发"的行。
+自引用外键因此被填成一堆自引用行而不是一条层级，`003` 需要的三行链从不出现。
+
+修法两处（**本轮刻意不做**，因为改动生成器会让正在跑的 jar 失去意义）：(1) 为自引用关系生成一条小层级
+（根 + 子 + 偶尔的孙）；(2) 探针优先选"被**另一行**引用的父行"。
+
+### 13.6 诚实边界
+
+* 两个缺陷都**没有查过 MySQL 官方 tracker**：本环境访问 `bugs.mysql.com` 返回 HTTP 403，"是否已有人报过"
+  **不成立**。
+* `003` **未做版本二分**：确认于 26.7.0、不存在于 8.0.28 与 26.7.0 的 InnoDB 路径；引入它的版本是 9.6 或更晚。
+  引擎说"max tables limit of 30"时到底在数什么，**未知**——它不是表的数量、不是子表的数量、也不是被删的行数。
+* `004` 的**机理未确定**（触发条件是实测的）。
+* 两个工具缺陷（§13.3 前两条）**只做了诊断，没有修**：一个是 oracle 期望模型，一个是映射层选择，都属于
+  维护者的决定，而且中途改源码会让正在测试的 jar 失效。
+* **受信任的 oracle 组合在这一轮依然一条都没报**。所有发现都来自 `--oracle ALL` 系列，或来自顺着它们的一条
+  报告往下追。这说明的是"剩下的 MySQL 缺陷长在哪里"，而不是"其它 oracle 没用"——`crash`、
+  `schema-round-trip`、`idempotence` 正是让**工具**保持诚实的那一组。
