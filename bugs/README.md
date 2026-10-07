@@ -61,6 +61,18 @@ kept, so genuinely different defects stay apart.
 * the other defects filed for the same database, the titles the defect was reported under, and the
   seeds that found it.
 
+## Filing a report with the engine's tracker
+
+A report here is written for this project: the evidence, the confidence level, the reduced
+reproduction and the command line that reproduces the run. The engine's tracker takes a different
+form. `docs/BUG-REPORT-TEMPLATE-MYSQL.md` holds the `bugs.mysql.com` *Report a Bug* field list and
+says which part of a report goes in each field.
+
+Reports `002` and `003` each carry a **Before filing, search the tracker for these** block — the
+keywords that make a report non-duplicate, and the two facts no generic report of the same symptom
+will have. (Report `004` has none; its scope section records what could not be checked.) Searching is
+part of filing, not an optional extra.
+
 ## Configuration
 
 `--bug-dir <dir>` chooses the directory (default `bugs`). `--bug-dir off` disables filing.
