@@ -68,10 +68,15 @@ reproduction and the command line that reproduces the run. The engine's tracker 
 form. `docs/BUG-REPORT-TEMPLATE-MYSQL.md` holds the `bugs.mysql.com` *Report a Bug* field list and
 says which part of a report goes in each field.
 
-Reports `002` and `003` each carry a **Before filing, search the tracker for these** block — the
+Reports `003` and `004` are written in the tracker's form directly, as plain text: the field list of
+`docs/BUG-REPORT-TEMPLATE-MYSQL.md`, no Markdown markup in `Description` or `How to repeat`, so the
+text can be pasted into the `bugs.mysql.com` page as it stands. The project's own evidence — the
+confidence level, the reduced reproduction, the command lines — is kept in the fields the template
+maps it to. `001` and `002` still use the earlier sectioned layout.
+
+Reports `002`, `003` and `004` each carry a **Before filing, search the tracker for these** block — the
 keywords that make a report non-duplicate, and the two facts no generic report of the same symptom
-will have. (Report `004` has none; its scope section records what could not be checked.) Searching is
-part of filing, not an optional extra.
+will have. Searching is part of filing, not an optional extra.
 
 ## Configuration
 
