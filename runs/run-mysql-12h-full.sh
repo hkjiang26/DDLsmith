@@ -23,6 +23,7 @@ export LC_ALL=C LANG=C
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 HOURS=12
+ROUND_SECONDS=1800
 OUT_ROOT=''
 NO_TAIL=0
 FORWARD=()
@@ -34,6 +35,7 @@ TAIL_SHAPE=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --hours) HOURS="$2"; FORWARD+=("$1" "$2"); shift 2 ;;
+        --round-seconds) ROUND_SECONDS="$2"; FORWARD+=("$1" "$2"); shift 2 ;;
         --out-root) OUT_ROOT="$2"; FORWARD+=("$1" "$2"); shift 2 ;;
         --no-tail) NO_TAIL=1; shift ;;
         --chunk-seconds | --chunk-tries | --heap-mb | --threads | --min-free-gb)
@@ -62,10 +64,18 @@ if [ "$NO_TAIL" -eq 1 ]; then
     exit 0
 fi
 
+# The tail round's floor is a quarter of a round, not a fixed number of seconds. The driver only ever
+# stops with less than one whole round left, so a floor that is not comfortably below the round length
+# would refuse every tail round there is - which is what a fixed 420 s floor did to a preflight of
+# 300 s rounds. A quarter of a round is always enough for at least one chunk of real testing.
+TAIL_MIN_SECONDS=$(( ROUND_SECONDS / 4 ))
+[ "$TAIL_MIN_SECONDS" -lt 120 ] && TAIL_MIN_SECONDS=120
+
 bash "$HERE/run-mysql-12h-tail-round.sh" \
     --campaign-start-epoch "$CAMPAIGN_START" --hours "$HOURS" --out-root "$OUT_ROOT" \
+    --min-seconds "$TAIL_MIN_SECONDS" \
     "${TAIL_SHAPE[@]}"
-echo "[full] tail round exited with status $?"
+echo "[full] tail round exited with status $? (floor was ${TAIL_MIN_SECONDS}s of a ${ROUND_SECONDS}s round)"
 
 echo "[full] the twelve-hour experiment is complete; read it with:"
 echo "         bash $HERE/status-mysql-12h.sh"

@@ -49,7 +49,7 @@ printf 'uptime          : %s\n' "$(uptime -p 2>/dev/null || uptime)"
 echo
 echo "-- this experiment's own resources --"
 printf 'slice           : %s (%s)\n' "$SLICE" "$([ -f "/run/systemd/system/$SLICE" ] && echo 'unit file installed' || echo 'not installed yet')"
-printf 'unit            : %s (%s)\n' "$UNIT" "$(SUDO systemctl is-active "$UNIT" 2>/dev/null || echo inactive)"
+printf 'unit            : %s (%s)\n' "$UNIT" "$(SUDO systemctl is-active "$UNIT" 2>/dev/null | head -1)"
 if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
     printf 'port %-10s: answering\n' "$PORT"
 else
