@@ -24,8 +24,14 @@ import org.ddlsmith.oracle.OracleContext.ExecutionEvent;
  * <p>Everything in here is deliberately free of engine specific knowledge: the only inputs are the
  * frozen contract ({@link DatabaseUnderTest}, {@link DDLFeatureSet},
  * {@link IntrospectionCapability}) and the intended schema.</p>
+ *
+ * <p>The class is public so that an oracle living outside this package (an extension oracle loaded
+ * through {@link java.util.ServiceLoader}, in {@code org.ddlsmith.conformance} or in a plugin of
+ * one's own) can render the same qualified table references and write the same self-contained
+ * reproducers, instead of growing a second, subtly different copy of these rules. Only the members
+ * an oracle needs that way are public; the rest stays package private.</p>
  */
-final class OracleSupport {
+public final class OracleSupport {
 
     /** Upper bound for the {@code details} of a failure; longer reports are truncated. */
     static final int MAX_DETAIL_CHARS = 12000;
@@ -64,7 +70,7 @@ final class OracleSupport {
      * database). Comparing a database against a schema that was never rendered for its dialect would
      * report dialect adaptation as an engine defect.</p>
      */
-    static RelationalSchema intendedSchemaFor(OracleContext context, DatabaseUnderTest database) {
+    public static RelationalSchema intendedSchemaFor(OracleContext context, DatabaseUnderTest database) {
         if (database != null && database.getIntendedSchema() != null) {
             return database.getIntendedSchema();
         }
@@ -76,7 +82,7 @@ final class OracleSupport {
      * {@code null} when the dialect does not qualify identifiers (in which case the DDL created the
      * objects in the engine's default namespace and asking for a named schema would be wrong).
      */
-    static String resolveSchemaName(OracleContext context, DatabaseUnderTest database) {
+    public static String resolveSchemaName(OracleContext context, DatabaseUnderTest database) {
         if (!database.getDialect().getFeatures().supports(DDLFeature.QUALIFIED_NAMES)) {
             return null;
         }
@@ -109,7 +115,7 @@ final class OracleSupport {
     }
 
     /** @return {@code schema.name} when the dialect qualifies identifiers, else just {@code name} */
-    static String qualifiedName(DatabaseUnderTest database, String schemaName, String name) {
+    public static String qualifiedName(DatabaseUnderTest database, String schemaName, String name) {
         String quoted = quote(database, name);
         if (schemaName == null || schemaName.isBlank()
                 || !database.getDialect().getFeatures().supports(DDLFeature.QUALIFIED_NAMES)) {
@@ -119,7 +125,7 @@ final class OracleSupport {
     }
 
     /** @return a qualified reference to a table of the intended schema, quoted for this database */
-    static String tableReference(OracleContext context, DatabaseUnderTest database, Table table) {
+    public static String tableReference(OracleContext context, DatabaseUnderTest database, Table table) {
         String schemaName = table.getSchemaName() != null ? table.getSchemaName()
                 : resolveSchemaName(context, database);
         return qualifiedName(database, schemaName, table.getName());
@@ -300,7 +306,7 @@ final class OracleSupport {
      *        when it is set the listing stops at that statement, so the reproducer is exactly the
      *        prefix that leads to the failure
      */
-    static String reproducer(OracleContext context, String databaseName, ExecutionEvent marked) {
+    public static String reproducer(OracleContext context, String databaseName, ExecutionEvent marked) {
         StringBuilder sb = new StringBuilder();
         for (ExecutionEvent event : context.getExecutionEvents(databaseName)) {
             sb.append(oneLine(event.getSql()));
@@ -326,7 +332,7 @@ final class OracleSupport {
     }
 
     /** Keeps a failure report readable by bounding its length. */
-    static String truncate(String text) {
+    public static String truncate(String text) {
         if (text == null || text.length() <= MAX_DETAIL_CHARS) {
             return text;
         }

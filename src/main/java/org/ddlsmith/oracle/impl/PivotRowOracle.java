@@ -375,139 +375,15 @@ public class PivotRowOracle implements TestOracle {
         return result;
     }
 
-    /** The canonical, engine independent form of a value used for tuple comparison. */
-    static String canonical(Object value, DataType type) {
-        String temporal = canonicalTemporal(value, type);
-        if (temporal != null) {
-            return temporal;
-        }
-        Object normalized = DataModel.normalizeForComparison(value);
-        if (normalized == null) {
-            return "NULL";
-        }
-        if (normalized instanceof BigDecimal) {
-            return ((BigDecimal) normalized).toPlainString();
-        }
-        if (type != null && type.getCategory() == DataType.Category.CHAR) {
-            return normalized.toString().stripTrailing();
-        }
-        return normalized.toString();
-    }
-
     /**
-     * The canonical form of a temporal value, which the Java type alone cannot supply: the model
-     * holds a {@link java.sql.Timestamp} for every DATE/TIME/TIMESTAMP column the row generator
-     * fills, while the driver hands back whatever type its engine maps the column to — measured on
-     * MySQL 26.7.0, Connector/J returns {@code java.sql.Date} for DATE, {@code java.sql.Time} for
-     * TIME and {@link java.time.LocalDateTime} for DATETIME — and their {@code toString()} forms
-     * differ in the date/time separator, in whether the seconds are shown, and in the fractional
-     * seconds. A primary key that contains a temporal column therefore made every key tuple of that
-     * table look different from the value that was inserted: one generated database of the MySQL
-     * campaign reported {@code [(1, 2000-01-01 00:00:06.0), …]} against
-     * {@code [(1, 2000-01-01T00:00:06), …]} although both sides held the same four rows. Rendering
-     * both sides from the same {@code LocalDateTime} — the date only for a DATE column, the time only
-     * for a TIME column, and fractional seconds with their trailing zeros removed — removes the whole
-     * class of difference without weakening the check, because a value the engine actually coerced or
-     * truncated still differs.
+     * The canonical, engine independent form of a value used for tuple comparison.
      *
-     * @return the canonical form, or null when the column is not temporal or the value cannot be
-     *         read as a temporal value (in which case the ordinary comparison applies)
+     * <p>The implementation is shared with every other consumer of the data model
+     * ({@link DataModel#canonical(Object, DataType)}) so that an engine is never reported for a
+     * difference that is only the Java type or the spelling a driver chose.</p>
      */
-    private static String canonicalTemporal(Object value, DataType type) {
-        if (type == null || value == null) {
-            return null;
-        }
-        DataType.Category category = type.getCategory();
-        if (category != DataType.Category.DATE && category != DataType.Category.TIME
-                && category != DataType.Category.TIMESTAMP && category != DataType.Category.TIMESTAMPTZ) {
-            return null;
-        }
-        java.time.LocalDateTime moment = toLocalDateTime(value);
-        if (moment == null) {
-            return null;
-        }
-        switch (category) {
-        case DATE:
-            return moment.toLocalDate().toString();
-        case TIME:
-            return formatTime(moment.toLocalTime());
-        default:
-            return moment.toLocalDate() + " " + formatTime(moment.toLocalTime());
-        }
-    }
-
-    private static java.time.LocalDateTime toLocalDateTime(Object value) {
-        if (value instanceof java.time.LocalDateTime) {
-            return (java.time.LocalDateTime) value;
-        }
-        if (value instanceof java.time.LocalDate) {
-            return ((java.time.LocalDate) value).atStartOfDay();
-        }
-        if (value instanceof java.time.LocalTime) {
-            return java.time.LocalDate.of(1970, 1, 1).atTime((java.time.LocalTime) value);
-        }
-        if (value instanceof java.time.OffsetDateTime) {
-            return ((java.time.OffsetDateTime) value).toLocalDateTime();
-        }
-        if (value instanceof java.time.ZonedDateTime) {
-            return ((java.time.ZonedDateTime) value).toLocalDateTime();
-        }
-        if (value instanceof java.sql.Timestamp) {
-            // checked before java.util.Date, which Timestamp extends
-            return ((java.sql.Timestamp) value).toLocalDateTime();
-        }
-        if (value instanceof java.sql.Date) {
-            return ((java.sql.Date) value).toLocalDate().atStartOfDay();
-        }
-        if (value instanceof java.sql.Time) {
-            return java.time.LocalDate.of(1970, 1, 1).atTime(((java.sql.Time) value).toLocalTime());
-        }
-        if (value instanceof java.util.Date) {
-            return java.time.LocalDateTime.ofInstant(((java.util.Date) value).toInstant(),
-                    java.time.ZoneId.systemDefault());
-        }
-        if (value instanceof CharSequence) {
-            return parseTemporal(value.toString());
-        }
-        return null;
-    }
-
-    /** @return the temporal value a literal denotes, or null when the text is not one */
-    private static java.time.LocalDateTime parseTemporal(String text) {
-        String trimmed = text.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        try {
-            return java.time.LocalDateTime.parse(trimmed.replace(' ', 'T'));
-        } catch (java.time.format.DateTimeParseException notADateTime) {
-            // try the shorter forms below
-        }
-        try {
-            return java.time.LocalDate.parse(trimmed).atStartOfDay();
-        } catch (java.time.format.DateTimeParseException notADate) {
-            // try a time of day
-        }
-        try {
-            return java.time.LocalDate.of(1970, 1, 1).atTime(java.time.LocalTime.parse(trimmed));
-        } catch (java.time.format.DateTimeParseException notATime) {
-            return null;
-        }
-    }
-
-    private static String formatTime(java.time.LocalTime time) {
-        StringBuilder sb = new StringBuilder(String.format("%02d:%02d:%02d", time.getHour(), time.getMinute(),
-                time.getSecond()));
-        int nanos = time.getNano();
-        if (nanos > 0) {
-            String fraction = String.format("%09d", nanos);
-            int end = fraction.length();
-            while (end > 0 && fraction.charAt(end - 1) == '0') {
-                end--;
-            }
-            sb.append('.').append(fraction, 0, end);
-        }
-        return sb.toString();
+    static String canonical(Object value, DataType type) {
+        return DataModel.canonical(value, type);
     }
 
     private static boolean sameValue(Object expected, Object observed, DataType type) {

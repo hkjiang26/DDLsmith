@@ -125,10 +125,21 @@ DDLSmith targets exactly these, with black-box oracles that only use SQL any cli
 | `metamorphic-alter` | `ALTER TABLE` plus its inverse does not restore the schema, or an ALTER-built schema differs from the equivalent directly-created one. |
 | `idempotence` | `IF NOT EXISTS` / `IF EXISTS` / `OR REPLACE` are accepted but not honoured. |
 | `pivot-row` | Rows that were inserted with known values are not what queries return (silent coercion, truncation, wrong aggregate semantics). |
+| `graph-conformance` | The database does not store, or does not answer about, the **graph instance the schema was derived from**: a row the graph requires is rejected, a join returns different pairs than the instance holds, a parent has a different number of children than the graph produced, a reference dangles, or a generated view disagrees with its own definition. It is an **extension oracle** (see §13): it plugs in through `META-INF/services` and is selected like any other (`--oracle graph-conformance`, or `ALL`). |
 
 The oracles are all *black-box* and *reproducible*: every failure is written to `logs/` together
 with the seed, the generated graph, the ER diagram, the mapping decisions and the exact statement
 script, so it can be replayed with `--reproduce`.
+
+`graph-conformance` is the wholesale counterpart of the data oracles: instead of probing one
+constraint at a time it materializes the whole generated graph instance — nodes to rows, edges to
+foreign key values or join rows, generalization/category/weak-entity links to the references the
+mapper created for them — and then checks every populated table's rows, every foreign key's join and
+per-parent child count, every dangling reference and every view against what it inserted. One graph
+therefore becomes hundreds of implicit probes and joins per database, computed from the graph rather
+than from a second engine or a rewritten query. Its measured false-positive census (300 databases,
+about 6 000 semantic queries, 0 findings) and the gaps it announces rather than guesses are recorded
+in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md).
 
 ## 4. Requirements
 
@@ -658,6 +669,22 @@ the two remaining findings now carry the engine's own words. See
 [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md), which records every claim with its bare-SQL
 evidence and lists what is *not* verified.
 
+**The first extension oracle — `graph-conformance` — is attached through the plugin seam, not
+through the core.** It is deliberately *not* in the default oracle set (it inserts a whole instance,
+so it costs more than the default three) and it is *not* registered in `Oracles.FACTORIES`: a class
+in `org.ddlsmith.conformance` plus a line in `META-INF/services/org.ddlsmith.oracle.TestOracle` is
+the whole wiring, and the registry discovers it with `ServiceLoader` when it is first used. The
+sources compile against the core API alone (`compile-subset.ps1` verifies it), so the same file can
+be rebuilt or replaced without touching the oracle layer. It declines `--evolve-steps` runs, in which
+the schema under test is no longer the mapped schema, and it removes the rows it inserted before the
+next oracle runs, so the differential algorithm's "still empty after the oracles" post-condition is
+untouched. Measured on the committed build: **300 databases and about 6 000 semantic queries across
+SQLite, H2 and DuckDB with 0 findings**, plus 20 differential databases with the oracle running on
+both engines; what it cannot materialize (aggregations, reference cycles with mandatory foreign keys,
+cycles among self-references) it announces in the report instead of guessing — the census, the gaps
+and the nine defects of the oracle's own construction that the measurements found are in
+[docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md).
+
 ## 13. Project layout
 
 ```
@@ -680,7 +707,8 @@ src/main/java/org/ddlsmith/
 │   └── impl/                     per-engine introspectors + SchemaNormalizer
 ├── data/                         row generation and the in-memory data model
 ├── oracle/                       oracle contract, context, failure reports
-│   └── impl/                     the nine oracles
+│   └── impl/                     the nine built-in oracles
+├── conformance/                  the graph-conformance extension oracle (materializer, query bank)
 ├── algorithm/                    generation pipeline and testing algorithms
 └── dbms/                         providers, dialects/introspectors registries, configuration
 

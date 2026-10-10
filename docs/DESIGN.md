@@ -332,6 +332,108 @@ differential oracle's output trustworthy.
 | metamorphic-alter | `ALTER TABLE` that is not the inverse of itself, or that produces a different schema than the equivalent `CREATE` |
 | idempotence | `IF NOT EXISTS` / `IF EXISTS` / `OR REPLACE` accepted but ignored |
 | pivot-row | inserted values not being what queries return |
+| graph-conformance | the database not storing, or not answering about, the graph instance the schema was derived from (§4.6) |
+
+### 4.6 The `graph-conformance` extension oracle
+
+Every oracle above asks about one statement, one constraint or one table. `graph-conformance` asks
+the question the whole pipeline exists to make answerable: *given the graph instance the schema was
+derived from, does the database behave like the ER diagram says it should?* It lives in
+`org.ddlsmith.conformance` and is contributed through the service loader (§4.7), which is why it is an
+extension and not a tenth entry in `Oracles.FACTORIES`.
+
+The chain that makes its expectation trustworthy is the one the project already verifies:
+
+1. the generated instance is a legal instance of the ER diagram (`CardinalityEnforcer`, asserted for
+   every generator over hundreds of seeds);
+2. the mapper implements the ER semantics (its invariants, its self-check over tens of thousands of
+   mappings, and the drop ledger that makes a lost attribute impossible to hide);
+3. the materializer derives every row from the graph — never from the engine — and is deterministic;
+4. every expectation is computed from the rows the engine **accepted**, so a rejected row is reported
+   once and never becomes a second, phantom finding about data the database could not store.
+
+A disagreement is therefore either the engine not implementing what it accepted, or DDLSmith being
+wrong about what it asked for — and the second case is what the census of a run measures, exactly as
+it does for the built-in oracles. The measured census (300 databases, about 6 000 semantic queries,
+0 findings, and the gaps it announces instead of guessing) is
+[ACCEPTANCE-CONFORMANCE.md](ACCEPTANCE-CONFORMANCE.md).
+
+**What is materialized** (`ConformancePlanner`):
+
+| ER construct | Graph evidence | Resulting rows |
+| ------------ | -------------- | -------------- |
+| strong entity | nodes of its label | one row per node; attribute columns take the node's property values, a natural key keeps them unless two nodes collide (the value pools repeat by design), a surrogate key keeps the value the row generator drew |
+| 1:1 / 1:N relationship (foreign-key strategy) | edges of its type | the holder side's row receives the other endpoint's key; the holder is identified by the foreign key the mapper created, and for a recursive relationship by the roles the mapper wrote (`_src` = `from`, `_dst` = `to`) |
+| M:N and n-ary (join table) | edges of its type — for an n-ary relationship, the pairwise types its merged names record | one join row per edge, or per node tuple for a ternary |
+| 1:1 merge | edges of its type | the survivor's row carries the merged entity's columns, when the participation is total on both sides; otherwise the pairing is not determined by the instance and the columns are announced as not materialized |
+| weak entity | the identifying relationship's edges | the owner key columns of the weak table take the owner node's key |
+| generalization (table per subclass with foreign key) | the ISA link's edges | the subtype's key columns, which are also its foreign keys, take the supertype node's key |
+| category | the membership link's edges | the nullable membership foreign keys take the supertype nodes' keys; a row whose memberships are all NULL is dropped, because the union check would reject it |
+| multi-valued attribute | self-loop edges of its type | one value row per edge, keyed by the owner |
+| view | the mapped definition | the view is compared with its own body |
+
+**What is checked** (`SemanticQueryBuilder`): every populated table's rows value by value (columns
+whose declared type has no portable rendering — JSON, ARRAY, ENUM — are stored but not compared); for
+every foreign key, the join over it, the number of children per parent, and the rows whose reference
+points at no parent (normally none: the "must be empty" shape); and every plain view against its own
+definition.
+
+**Guards** (all of them keep a limitation of the materialization from becoming an engine finding):
+
+* a table that could not be emptied, or in which any row was rejected, is left out of the foreign key
+  checks — its contents are not the instance the graph describes;
+* a partially NULL composite key is not a reference (MATCH SIMPLE), so it is neither expected in a
+  join nor counted as a child nor reported as dangling;
+* a rejection whose message describes a referential violation *and* whose reference is unresolvable at
+  that point is a note, not a finding: the parent row was rejected earlier, or the instance contains a
+  reference cycle no insertion order can satisfy;
+* a rejection on a key the engine computes (a unique constraint over a generated column) is a note for
+  the same reason: DDLSmith never inserts that value and cannot predict it;
+* rows are fitted to their columns before they are planned — an integral key that does not fit its
+  `SMALLINT` column is replaced by the row's deterministic in-range key — because otherwise H2 and
+  DuckDB rightly refuse a row SQLite accepts, and the oracle would report the engine for it;
+* the rows are removed again in a `finally`, so the differential algorithm's "still empty after the
+  oracles" post-condition is untouched;
+* anything the materializer cannot derive (an aggregation, an untraceable link, a construct whose
+  provenance the trace does not carry) is skipped **and** recorded in the notes of the report.
+
+**Budgets**: at most `MAX_QUERIES = 40` queries per database (shuffled through `Randomly`, so a run is
+reproducible), and at most 5 000 planned rows per database as a safety bound.
+
+**Declined inputs**: a context without a graph, an ER diagram or a trace; and an `--evolve-steps` run,
+in which the schema under test is no longer the mapped schema the instance belongs to
+(`IgnoreMeException`).
+
+### 4.7 Extension oracles
+
+`Oracles` registers the nine built-ins explicitly and then asks `ServiceLoader` for implementations of
+`org.ddlsmith.oracle.TestOracle`:
+
+```
+src/main/resources/META-INF/services/org.ddlsmith.oracle.TestOracle
+    org.ddlsmith.conformance.GraphConformanceOracle
+```
+
+Any class listed there becomes selectable by `--oracle <name>`, appears in the `--oracle ALL` set and
+in `Oracles.names()`, and is filed by `BugSignature` under its own oracle name, so its findings never
+merge with another oracle's. Two rules apply to an extension:
+
+* **it must be stateless** — the single instance ServiceLoader hands out is shared, so everything an
+  invocation needs lives in the `OracleContext` it is given or in local variables;
+* **it should leave the database as it found it** when it writes rows: the differential algorithm
+  checks *after* the oracles that the tables it created are still empty, so an oracle that keeps its
+  rows behind turns that post-condition into a finding about itself. `graph-conformance` removes what
+  it inserted in a `finally`.
+
+An extension is registered after the built-ins, so it also runs after them. That is not a detail: the
+oracles share the thread's seeded random stream, and a run with `--oracle ALL` therefore produces the
+same findings for the built-in oracles whether or not an extension is selected.
+
+The seam is deliberately small: the core changed by one `ServiceLoader` call, one visibility widening
+(`OracleSupport`, so an extension renders qualified references exactly as the built-ins do) and one
+move (`DataModel.canonical`, so the comparison rules have a single home). The extension's own sources
+compile against that API alone — `compile-subset.ps1 -Path src/main/java/org/ddlsmith/conformance` is
+the check.
 
 ### 4.5 False-positive guards
 
