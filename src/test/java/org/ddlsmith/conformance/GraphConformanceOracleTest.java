@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -16,9 +17,11 @@ import org.ddlsmith.IgnoreMeException;
 import org.ddlsmith.MainOptions;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
+import org.ddlsmith.common.schema.ForeignKey;
 import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.conformance.ConformancePlan.PlannedRow;
+import org.ddlsmith.data.DataModel;
 import org.ddlsmith.data.RowGenerator;
 import org.ddlsmith.dbms.h2.H2Dialect;
 import org.ddlsmith.dbms.h2.H2Introspector;
@@ -153,31 +156,130 @@ class GraphConformanceOracleTest {
     }
 
     @Test
-    @DisplayName("a row the standard allows, refused with an integrity violation, is reported as too strict")
+    @DisplayName("a row the standard allows, refused by a reference, is reported as too strict")
     void reportsARefusedMustAcceptProbe() throws Exception {
         try (ConformanceTestSupport.Session session = h2(1L)) {
+            List<List<String>> capturedNotes = new ArrayList<>();
             GraphConformanceOracle oracle = new GraphConformanceOracle() {
                 @Override
                 protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
                         RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
                         List<String> notes) {
-                    // H2 refuses the duplicate with SQLSTATE 23505, the integrity class: the probe is a
-                    // MUST_ACCEPT one, so the refusal is the engine enforcing more than the schema declares
-                    String table = population.accepted.keySet().iterator().next();
-                    PlannedRow row = population.accepted.get(table).get(0);
-                    Table definition = schema.getTable(table);
-                    String sql = new RowGenerator(schema, database.getDialect())
-                            .toInsertSql(definition, row.getValues(), Set.of());
-                    return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_ACCEPT,
-                            "test probe (a partially NULL reference (x IS NULL))", table,
-                            "a row the standard allows", sql, null, "test", row.getValues()));
+                    capturedNotes.add(notes);
+                    // A reference is refused for a row that is declared MUST_ACCEPT: that is what the probe
+                    // reports, because a partially NULL composite key is not a reference at all. (The row
+                    // here points a present reference at no parent, which every engine has to refuse — the
+                    // point under test is the classification, not the shape that produced it.)
+                    for (Table candidate : schema.getTables()) {
+                        if (candidate.getForeignKeys().isEmpty() || !population.isUsable(candidate.getName())
+                                || population.acceptedRows(candidate.getName()).isEmpty()) {
+                            continue;
+                        }
+                        for (ForeignKey foreignKey : candidate.getForeignKeys()) {
+                            if (foreignKey.getColumns().size() != 1) {
+                                continue;
+                            }
+                            Table parent = schema.getTable(foreignKey.getReferencedTable());
+                            if (parent == null || !population.isUsable(parent.getName())
+                                    || population.acceptedRows(parent.getName()).isEmpty()) {
+                                continue;
+                            }
+                            List<Object> stored = new ArrayList<>();
+                            for (PlannedRow parentRow : population.acceptedRows(parent.getName())) {
+                                stored.addAll(parentRow.valuesOf(foreignKey.getReferencedColumns()));
+                            }
+                            Object dangling = ConformanceProbeBuilder.danglingValue(
+                                    candidate.getColumn(foreignKey.getColumns().get(0)), stored);
+                            if (dangling == null) {
+                                continue;
+                            }
+                            Map<String, Object> values = new LinkedHashMap<>(
+                                    population.acceptedRows(candidate.getName()).get(0).getValues());
+                            // a row of its own: the key has to be one the instance does not use, or the engine
+                            // refuses the clone for repeating the primary key it was cloned from
+                            boolean minted = true;
+                            if (candidate.getPrimaryKey() != null) {
+                                for (String keyColumn : candidate.getPrimaryKey().getColumns()) {
+                                    List<Object> taken = new ArrayList<>();
+                                    for (PlannedRow storedRow : population.acceptedRows(candidate.getName())) {
+                                        taken.add(DataModel.getValue(storedRow.getValues(), keyColumn));
+                                    }
+                                    Object fresh = ConformanceProbeBuilder.danglingValue(
+                                            candidate.getColumn(keyColumn), taken);
+                                    if (fresh == null) {
+                                        minted = false;
+                                        break;
+                                    }
+                                    values.put(keyColumn, fresh);
+                                }
+                            }
+                            if (!minted) {
+                                continue;
+                            }
+                            values.put(foreignKey.getColumns().get(0), dangling);
+                            String sql = new RowGenerator(schema, database.getDialect())
+                                    .toInsertSql(candidate, values, Set.of());
+                            return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_ACCEPT,
+                                    "test probe (a partially NULL reference (x IS NULL))", candidate.getName(),
+                                    "a row the standard allows", sql, null, "test", values));
+                        }
+                    }
+                    return List.of();
                 }
             };
             Optional<OracleFailure> failure = oracle.verify(session.context);
-            assertTrue(failure.isPresent(), "the refusal of a legal row was not reported");
+            assertTrue(failure.isPresent(), "the refusal of a legal row was not reported; notes: "
+                    + (capturedNotes.isEmpty() ? "<seam not called>" : String.join(" | ", capturedNotes.get(0))));
             assertEquals(FailureKind.CONSTRAINT_TOO_STRICT, failure.get().getKind());
             assertTrue(failure.get().getDetails().contains("the declared schema allows was refused"),
                     failure.get().getDetails());
+        }
+    }
+
+    @Test
+    @DisplayName("a MUST_ACCEPT probe refused for another reason is a note, not an accusation")
+    void notesAMustAcceptProbeRefusedForAnotherReason() throws Exception {
+        try (ConformanceTestSupport.Session session = h2(2L)) {
+            List<List<String>> capturedNotes = new ArrayList<>();
+            GraphConformanceOracle oracle = new GraphConformanceOracle() {
+                @Override
+                protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
+                        RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
+                        List<String> notes) {
+                    // Measured on MySQL: a probe row of t_4_r was refused by fk_t_4_r_0 — a foreign key that
+                    // had nothing to do with the probe — because the key columns the probe had minted were
+                    // also that reference's columns. Only a refusal of the reference under test may be read
+                    // as the engine enforcing more than the schema declares.
+                    capturedNotes.add(notes);
+                    for (Table candidate : schema.getTables()) {
+                        if (!population.isUsable(candidate.getName())
+                                || population.acceptedRows(candidate.getName()).isEmpty()) {
+                            continue;
+                        }
+                        for (Column column : candidate.getColumns()) {
+                            if (column.isNullable() || column.isGenerated() || column.isIdentity()) {
+                                continue;
+                            }
+                            // a row the engine already accepted, with one NOT NULL column nulled: refused for
+                            // a reason that has nothing to do with the reference the probe names
+                            Map<String, Object> values = new LinkedHashMap<>(
+                                    population.acceptedRows(candidate.getName()).get(0).getValues());
+                            values.put(column.getName(), null);
+                            String sql = new RowGenerator(schema, database.getDialect())
+                                    .toInsertSql(candidate, values, Set.of());
+                            return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_ACCEPT,
+                                    "test probe (a partially NULL reference (x IS NULL))", candidate.getName(),
+                                    "a row the standard allows", sql, null, "test", values));
+                        }
+                    }
+                    return List.of();
+                }
+            };
+            assertTrue(oracle.verify(session.context).isEmpty(),
+                    "a probe whose own row was invalid was reported as a defect");
+            String notes = String.join("\n", capturedNotes.isEmpty() ? List.of("") : capturedNotes.get(0));
+            assertTrue(notes.contains("not a refusal of the reference under test"),
+                    "the note explaining the skip is missing: " + notes);
         }
     }
 

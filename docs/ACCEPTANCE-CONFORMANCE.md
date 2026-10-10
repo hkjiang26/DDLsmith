@@ -126,17 +126,24 @@ reporting nothing at all**. The probes ask the other question, and that database
 
 The same script re-runs the six databases where this oracle used to report a false positive and requires
 silence: all seven cases pass (`runs/verify-mysql-abc-2h.txt`). How often the probes fire where the
-engine is really broken, and how often they fire where it is not, is measured on the 20-database MySQL
-sample above: **3 findings, every one the same engine defect** — one from the NULL-beside-the-key shape
-as designed, one from the plain dangling probe whose generated row happened to carry a NULL in another
-column of the enforcement index, and one from the UPDATE variant — and **0 findings on SQLite for the
-same 20 seeds**, which is the control that says the probes are specific rather than noisy.
+engine is really broken, and how often they fire where it is not, is measured on a 300-second MySQL run
+of 326 further databases: **47 findings, every one of them a row the schema forbids that the engine
+stored** — 33 from the NULL-beside-the-key shape, 13 from the plain dangling reference (a row that may
+itself carry a NULL in another column of the enforcement index, which is the same mechanism; the verdict
+does not depend on which of the two it is, since the schema forbids the row either way), and 1 from the
+UPDATE variant — and **0 `CONSTRAINT_TOO_STRICT` findings**, which is the direction that would mean the
+engine was accused of enforcing too much. The control is SQLite on the same seeds of an earlier sample:
+**0 findings in 20 databases**, and **0 in the 150 embedded-engine databases** of the census above.
 
 What a probe may not do is mistake a refusal for enforcement. A refusal counts only when it is an
 *integrity* refusal: SQLSTATE class `23`, MySQL's CHECK violation (`3819`, SQLSTATE `HY000`), or
 SQLite's vendor code `19` — each measured, because neither the SQLSTATE class nor the vendor code alone
 covers the three engines (defect 13 below). A data exception (`1264` out of range, `1406` truncation)
-means the probe's own row was invalid, and becomes a note instead of a finding.
+means the probe's own row was invalid, and becomes a note instead of a finding. The `MUST_ACCEPT` shape
+is stricter still: only a refusal *of the reference* counts, because that is the claim the probe makes —
+a partially NULL composite key is not a reference, so no reference refusal is legitimate. Measured on a
+300-second MySQL run, one such probe was refused by a foreign key that had nothing to do with it (the
+key columns the probe had minted were also that reference's columns), which is defect 15 below.
 
 ---
 
@@ -212,6 +219,24 @@ evidence that the census means something.
     the constraints they satisfied when they were stored. The fallback is the second source rather than
     the first, so the `CHECK` constraints the generator does understand are still satisfied by
     construction; a test asserts the floor of 70 %.
+15. **A key column is another table's reference, and minting it walked the row away from its parents.**
+    On a join table the key *is* the pair of references, so the fallback row above — a stored row with
+    every key column minted afresh — left its other references dangling, and the engine refused it for a
+    foreign key that had nothing to do with the probe. On a `MUST_REJECT` probe that costs coverage; on a
+    `MUST_ACCEPT` probe it was a **false positive**: measured on a 300-second MySQL run, one database of
+    307 was reported as "the engine refuses a legal row" when the probe's own row was the illegal thing.
+    Two changes: every other reference of a fallback row is pointed at a stored parent again before the
+    shape under test is applied, and a `MUST_ACCEPT` finding now requires a refusal that is *about the
+    reference* — any other integrity refusal is a note naming the engine's words.
+16. **A probe referenced a parent that only the generator believed in.** A `RowGenerator` registers every
+    row it hands out, including a row a probe was then refused for, so one generator shared between the
+    probes accumulated rows the database did not have. The next probe resolved a reference to such a
+    phantom parent, the engine rightly refused the row (1452), and the refusal was read as the engine
+    being too strict — one database of 307. Each probe now builds its own generator primed with the
+    instance, and `freshRow` only returns a row whose references all resolve to accepted rows, which is
+    the invariant `ConformanceProbeBuilderTest.everyOtherReferenceOfAProbeRowResolves` asserts; on SQLite
+    seed 10 that assertion also caught a cloned row referencing a parent that had been rejected during
+    materialization.
 
 Two of them (5 and 7) are engine-independent properties any consumer of the data model wants;
 they were fixed in the shared helper (`DataModel`) rather than in the extension, and 10 and 11 follow

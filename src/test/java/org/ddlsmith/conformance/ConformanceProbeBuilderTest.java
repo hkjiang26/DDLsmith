@@ -223,6 +223,87 @@ class ConformanceProbeBuilderTest {
                 covered, probesBuilt, usableForeignKeys, skipped));
     }
 
+    @Test
+    @DisplayName("every reference a probe row carries, except the one under test, resolves to an accepted row")
+    void everyOtherReferenceOfAProbeRowResolves() throws Exception {
+        for (long seed : List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L)) {
+            try (ConformanceTestSupport.Session session = sqlite(seed)) {
+                RelationalSchema schema = session.input.adapted;
+                ConformancePlan plan = new ConformancePlanner(session.input.graph, session.input.erDiagram, schema,
+                        session.input.trace, session.database.getDialect()).plan();
+                ConformancePopulator.Result population = ConformancePopulator.populate(session.context,
+                        session.database, plan, schema);
+                for (ConformanceProbe probe : ConformanceProbeBuilder.build(session.context, session.database, schema,
+                        plan, population, new ArrayList<>())) {
+                    if (probe.getGroup().contains("moved by UPDATE") || probe.getRow().isEmpty()) {
+                        continue; // its row map describes the key it targets, not a row it carries
+                    }
+                    Table table = schema.getTable(probe.getTable());
+                    List<String> broken = brokenColumns(probe.getGroup());
+                    for (ForeignKey foreignKey : table.getForeignKeys()) {
+                        if (lower(foreignKey.getColumns()).equals(broken)) {
+                            continue; // the reference this probe is about, and the only one it may break
+                        }
+                        List<Object> values = new ArrayList<>();
+                        boolean present = true;
+                        for (String column : foreignKey.getColumns()) {
+                            Object value = DataModel.getValue(probe.getRow(), column);
+                            values.add(value);
+                            present = present && value != null;
+                        }
+                        if (!present) {
+                            continue; // a partially NULL key is not a reference
+                        }
+                        assertTrue(resolves(population, foreignKey, values),
+                                "seed " + seed + ": the probe '" + probe.getGroup() + "' carries the reference "
+                                        + foreignKey.getColumns() + " = " + values + ", which no accepted row of "
+                                        + foreignKey.getReferencedTable() + " satisfies: " + probe.getSql());
+                    }
+                }
+            }
+        }
+    }
+
+    /** @return the foreign key columns the probe's group names, lower-cased */
+    private static List<String> brokenColumns(String group) {
+        int open = group.indexOf('[');
+        int close = group.indexOf(']', open);
+        if (open < 0 || close < 0) {
+            return List.of();
+        }
+        List<String> columns = new ArrayList<>();
+        for (String column : group.substring(open + 1, close).split(",")) {
+            columns.add(column.trim().toLowerCase(java.util.Locale.ROOT));
+        }
+        return columns;
+    }
+
+    private static boolean resolves(ConformancePopulator.Result population, ForeignKey foreignKey,
+            List<Object> values) {
+        for (PlannedRow candidate : population.acceptedRows(foreignKey.getReferencedTable())) {
+            boolean same = true;
+            for (int i = 0; i < values.size(); i++) {
+                Object stored = DataModel.getValue(candidate.getValues(), foreignKey.getReferencedColumns().get(i));
+                if (!DataModel.canonical(values.get(i), null).equals(DataModel.canonical(stored, null))) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> lower(List<String> names) {
+        List<String> lowered = new ArrayList<>();
+        for (String name : names) {
+            lowered.add(name.toLowerCase(java.util.Locale.ROOT));
+        }
+        return lowered;
+    }
+
     /* ------------------------------------------------------------------ fixtures */
 
     private static Table child(String name, Column... columns) {

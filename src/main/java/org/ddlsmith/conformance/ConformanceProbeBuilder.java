@@ -99,23 +99,21 @@ public final class ConformanceProbeBuilder {
         // distinct from the plan's rows and resolve their mandatory references to stored parents. An
         // empty generator can do neither: it would hand out key values the instance already uses, and it
         // would refuse to build a row at all for a table with a mandatory foreign key.
-        RowGenerator generator = new RowGenerator(schema, dialect);
-        primeWithTheInstance(generator, schema, population);
         Set<String> minted = new LinkedHashSet<>();
 
         for (Usable fk : usable) {
-            addIfNotNull(probes, danglingReference(context, database, dialect, fk, generator, population, minted,
+            addIfNotNull(probes, danglingReference(context, database, dialect, fk, schema, population, minted,
                     notes));
         }
         for (Usable fk : usable) {
             // not List.of(...): most shapes do not apply to most foreign keys, and an immutable list of
             // nullable elements is a NullPointerException waiting for the first inapplicable shape
-            addIfNotNull(probes, nullBesideTheKey(context, database, dialect, fk, generator, population, minted,
+            addIfNotNull(probes, nullBesideTheKey(context, database, dialect, fk, schema, population, minted,
                     notes));
             addIfNotNull(probes, keyMovedByUpdate(context, database, dialect, fk, population, notes));
-            addIfNotNull(probes, partiallyNullReference(context, database, dialect, fk, generator, population, minted,
+            addIfNotNull(probes, partiallyNullReference(context, database, dialect, fk, schema, population, minted,
                     notes));
-            addIfNotNull(probes, secondChildOfAOneToOneParent(context, database, dialect, fk, generator, population,
+            addIfNotNull(probes, secondChildOfAOneToOneParent(context, database, dialect, fk, schema, population,
                     minted, notes));
         }
         return probes;
@@ -130,9 +128,9 @@ public final class ConformanceProbeBuilder {
     /* ================================================================== the five shapes */
 
     private static ConformanceProbe danglingReference(OracleContext context, DatabaseUnderTest database,
-            Dialect dialect, Usable fk, RowGenerator generator, ConformancePopulator.Result population,
+            Dialect dialect, Usable fk, RelationalSchema schema, ConformancePopulator.Result population,
             Set<String> minted, List<String> notes) {
-        Map<String, Object> row = freshRow(fk, generator, population, minted, notes, "dangling-reference probe");
+        Map<String, Object> row = freshRow(fk, schema, dialect, population, minted, notes, "dangling-reference probe");
         if (row == null) {
             return null;
         }
@@ -149,7 +147,7 @@ public final class ConformanceProbeBuilder {
                     + " the instance already stores");
             return null;
         }
-        return insertProbe(context, database, dialect, generator, fk, row, minted,
+        return insertProbe(context, database, dialect, schema, fk, row, minted,
                 ConformanceProbe.Kind.MUST_REJECT,
                 fk.group("negative probe: a reference with no parent"),
                 "a child row whose " + fk.describe() + " has no parent: the declared foreign key must refuse it",
@@ -158,13 +156,13 @@ public final class ConformanceProbeBuilder {
     }
 
     private static ConformanceProbe nullBesideTheKey(OracleContext context, DatabaseUnderTest database,
-            Dialect dialect, Usable fk, RowGenerator generator, ConformancePopulator.Result population,
+            Dialect dialect, Usable fk, RelationalSchema schema, ConformancePopulator.Result population,
             Set<String> minted, List<String> notes) {
         IndexChoice choice = nullNeighbourShape(fk.child, fk.foreignKey);
         if (choice == null) {
             return null;
         }
-        Map<String, Object> row = freshRow(fk, generator, population, minted, notes, "NULL-beside-the-key probe");
+        Map<String, Object> row = freshRow(fk, schema, dialect, population, minted, notes, "NULL-beside-the-key probe");
         if (row == null) {
             return null;
         }
@@ -178,7 +176,7 @@ public final class ConformanceProbeBuilder {
         if (collides(fk.child, row, population, minted)) {
             return null;
         }
-        return insertProbe(context, database, dialect, generator, fk, row, minted,
+        return insertProbe(context, database, dialect, schema, fk, row, minted,
                 ConformanceProbe.Kind.MUST_REJECT,
                 fk.group("negative probe: a NULL beside the key (" + choice.index + ")"),
                 "a child row whose " + fk.describe() + " has no parent, with " + choice.column + " — another"
@@ -224,7 +222,7 @@ public final class ConformanceProbeBuilder {
     }
 
     private static ConformanceProbe partiallyNullReference(OracleContext context, DatabaseUnderTest database,
-            Dialect dialect, Usable fk, RowGenerator generator, ConformancePopulator.Result population,
+            Dialect dialect, Usable fk, RelationalSchema schema, ConformancePopulator.Result population,
             Set<String> minted, List<String> notes) {
         if (!fk.foreignKey.isComposite()) {
             return null;
@@ -240,7 +238,7 @@ public final class ConformanceProbeBuilder {
         if (nullAt < 0) {
             return null;
         }
-        Map<String, Object> row = freshRow(fk, generator, population, minted, notes,
+        Map<String, Object> row = freshRow(fk, schema, dialect, population, minted, notes,
                 "partially NULL reference probe");
         if (row == null) {
             return null;
@@ -267,7 +265,7 @@ public final class ConformanceProbeBuilder {
         if (collides(fk.child, row, population, minted)) {
             return null;
         }
-        return insertProbe(context, database, dialect, generator, fk, row, minted,
+        return insertProbe(context, database, dialect, schema, fk, row, minted,
                 ConformanceProbe.Kind.MUST_ACCEPT,
                 fk.group("a partially NULL reference (" + fk.keyColumn(nullAt) + " IS NULL)"),
                 "a child row whose " + fk.describe() + " is partially NULL: a partially NULL composite key is"
@@ -276,7 +274,7 @@ public final class ConformanceProbeBuilder {
     }
 
     private static ConformanceProbe secondChildOfAOneToOneParent(OracleContext context, DatabaseUnderTest database,
-            Dialect dialect, Usable fk, RowGenerator generator, ConformancePopulator.Result population,
+            Dialect dialect, Usable fk, RelationalSchema schema, ConformancePopulator.Result population,
             Set<String> minted, List<String> notes) {
         if (!isOneToOne(fk.child, fk.foreignKey)) {
             return null;
@@ -299,7 +297,7 @@ public final class ConformanceProbeBuilder {
         if (parentKey == null) {
             return null;
         }
-        Map<String, Object> row = freshRow(fk, generator, population, minted, notes, "second-child probe");
+        Map<String, Object> row = freshRow(fk, schema, dialect, population, minted, notes, "second-child probe");
         if (row == null) {
             return null;
         }
@@ -309,7 +307,7 @@ public final class ConformanceProbeBuilder {
         if (collides(fk.child, row, population, minted)) {
             return null;
         }
-        return insertProbe(context, database, dialect, generator, fk, row, minted,
+        return insertProbe(context, database, dialect, schema, fk, row, minted,
                 ConformanceProbe.Kind.MUST_REJECT,
                 fk.group("negative probe: a second child of a one-to-one parent"),
                 "a second child row for a parent that already has one, which is what the unique key over "
@@ -320,9 +318,9 @@ public final class ConformanceProbeBuilder {
     /* ================================================================== rows and values */
 
     private static ConformanceProbe insertProbe(OracleContext context, DatabaseUnderTest database, Dialect dialect,
-            RowGenerator generator, Usable fk, Map<String, Object> row, Set<String> minted,
+            RelationalSchema schema, Usable fk, Map<String, Object> row, Set<String> minted,
             ConformanceProbe.Kind kind, String group, String description, String provenance) {
-        String sql = generator.toInsertSql(fk.child, row, Set.of());
+        String sql = new RowGenerator(schema, dialect).toInsertSql(fk.child, row, Set.of());
         List<String> key = firstKeyColumns(fk.child);
         Map<String, Object> keyValues = valuesOf(row, key);
         String cleanup = "DELETE FROM " + OracleSupport.tableReference(context, database, fk.child) + " WHERE "
@@ -347,14 +345,23 @@ public final class ConformanceProbeBuilder {
      *
      * @return the row, or null when neither source produced one
      */
-    private static Map<String, Object> freshRow(Usable fk, RowGenerator generator,
+    private static Map<String, Object> freshRow(Usable fk, RelationalSchema schema, Dialect dialect,
             ConformancePopulator.Result population, Set<String> minted, List<String> notes, String what) {
+        // A generator of its own, primed with the instance — never one shared between probes. A generator
+        // registers every row it hands out, including a row a probe was then refused for, so a shared
+        // instance accumulates rows the database does not have; the next probe resolves a reference to such
+        // a phantom parent, the engine rightly refuses it, and the refusal is read as the engine being too
+        // strict. Measured on MySQL: a partially-NULL-reference probe named a parent that a refused probe
+        // had left behind in the generator's model, and one database of 307 was reported for it.
+        RowGenerator generator = new RowGenerator(schema, dialect);
+        primeWithTheInstance(generator, schema, population);
         for (int attempt = 0; attempt < 4; attempt++) {
             Map<String, Object> row = generator.generateRow(fk.child);
             if (row.isEmpty()) {
                 break;
             }
-            if (!collides(fk.child, row, population, minted)) {
+            if (referencesResolve(row, fk.child, population, fk.foreignKey)
+                    && !collides(fk.child, row, population, minted)) {
                 return row;
             }
         }
@@ -364,13 +371,92 @@ public final class ConformanceProbeBuilder {
             if (!mintEveryKeyColumn(fk.child, row, population, alreadyMinted)) {
                 continue;
             }
-            if (!collides(fk.child, row, population, minted)) {
+            // A key column of one table is a reference of another: on a join table the key *is* the pair of
+            // references, and minting it walks the row away from its parents. Measured on MySQL: a
+            // partially-NULL-reference probe on t_4_r was refused by fk_t_4_r_0 — a foreign key that has
+            // nothing to do with the probe — because the minted key columns were also that reference's
+            // columns. Every other reference is therefore pointed at a stored parent again, before the
+            // shape under test is applied to the one this probe is about.
+            pointEveryOtherReferenceAtAStoredParent(fk, row, population);
+            if (referencesResolve(row, fk.child, population, fk.foreignKey)
+                    && !collides(fk.child, row, population, minted)) {
                 return row;
             }
         }
         notes.add("the " + what + " for " + fk.describe() + " was not built: no row distinct from the"
                 + " materialized instance could be generated for " + fk.child.getName());
         return null;
+    }
+
+    /**
+     * @return true when every reference of the row except the one under test points at a row the engine
+     *         accepted. A probe row that carries a dangling reference the probe is not about is refused by
+     *         the engine for the right reason and reported for the wrong one; measured on SQLite seed 10,
+     *         where a cloned row referenced a parent that had been rejected during materialization.
+     */
+    private static boolean referencesResolve(Map<String, Object> row, Table table,
+            ConformancePopulator.Result population, ForeignKey underTest) {
+        for (ForeignKey foreignKey : table.getForeignKeys()) {
+            if (foreignKey.getColumns().equals(underTest.getColumns())
+                    && foreignKey.getReferencedTable().equalsIgnoreCase(underTest.getReferencedTable())) {
+                continue;
+            }
+            List<Object> values = new ArrayList<>();
+            boolean present = true;
+            for (String column : foreignKey.getColumns()) {
+                Object value = DataModel.getValue(row, column);
+                values.add(value);
+                present = present && value != null;
+            }
+            if (!present) {
+                continue; // a partially NULL key is not a reference (MATCH SIMPLE)
+            }
+            if (!referencesAStoredRow(population, foreignKey, values)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean referencesAStoredRow(ConformancePopulator.Result population, ForeignKey foreignKey,
+            List<Object> values) {
+        for (PlannedRow candidate : population.acceptedRows(foreignKey.getReferencedTable())) {
+            boolean same = true;
+            for (int i = 0; i < values.size(); i++) {
+                Object stored = DataModel.getValue(candidate.getValues(), foreignKey.getReferencedColumns().get(i));
+                if (!DataModel.canonical(values.get(i), null).equals(DataModel.canonical(stored, null))) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Points every reference of the row except the one under test at a stored parent, so that a row whose
+     * key columns are also reference columns is not refused by a foreign key the probe says nothing about.
+     */
+    private static void pointEveryOtherReferenceAtAStoredParent(Usable fk, Map<String, Object> row,
+            ConformancePopulator.Result population) {
+        for (ForeignKey other : fk.child.getForeignKeys()) {
+            if (other.getColumns().equals(fk.foreignKey.getColumns())
+                    && other.getReferencedTable().equalsIgnoreCase(fk.foreignKey.getReferencedTable())) {
+                continue;
+            }
+            List<PlannedRow> parents = population.acceptedRows(other.getReferencedTable());
+            if (parents.isEmpty()) {
+                continue;
+            }
+            PlannedRow sample = parents.get(0);
+            for (int i = 0; i < other.getColumns().size() && i < other.getReferencedColumns().size(); i++) {
+                row.put(other.getColumns().get(i),
+                        DataModel.getValue(sample.getValues(), other.getReferencedColumns().get(i)));
+            }
+        }
     }
 
     /**
@@ -867,6 +953,22 @@ public final class ConformanceProbeBuilder {
         }
         String upper = message.toUpperCase(Locale.ROOT);
         return upper.contains("SQLITE_CONSTRAINT") || upper.contains("CONSTRAINT FAILED");
+    }
+
+    /**
+     * @return true when the refusal is about a <em>reference</em>, which is the only refusal that
+     *         contradicts the claim a partially NULL reference probe makes. Measured on MySQL, a row of
+     *         {@code t_4_r} was refused by a foreign key that had nothing to do with the probe — the
+     *         minted key columns were also that reference's columns — and reading that as the engine
+     *         enforcing more than the schema declares was exactly the false positive this predicate stops.
+     */
+    public static boolean isReferentialRejection(ExecutionEvent event) {
+        String message = event.getErrorMessage();
+        if (message == null) {
+            return false;
+        }
+        String upper = message.toUpperCase(Locale.ROOT);
+        return upper.contains("FOREIGN KEY") || upper.contains("REFERENTIAL") || upper.contains("CHILD ROW");
     }
 
     /**

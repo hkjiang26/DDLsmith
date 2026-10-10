@@ -380,7 +380,18 @@ public class GraphConformanceOracle implements TestOracle {
         }
         if (ConformanceProbeBuilder.isIntegrityRejection(event)) {
             if (probe.getKind() == ConformanceProbe.Kind.MUST_ACCEPT) {
-                return probeRefused(database, probe, event);
+                // Only a refusal of the *reference* contradicts the claim: a partially NULL composite key
+                // is not a reference, so no reference refusal is legitimate. Any other integrity refusal
+                // (a CHECK on a column the probe's row had to change, a duplicate of another key) says the
+                // probe's own row was invalid, which is a note and not an accusation — measured on MySQL,
+                // where a probe row was refused by a foreign key that had nothing to do with the probe.
+                if (ConformanceProbeBuilder.isReferentialRejection(event)) {
+                    return probeRefused(database, probe, event);
+                }
+                notes.add(prefix + "the probe '" + probe.getGroup() + "' asserted nothing: the engine refused"
+                        + " the row with " + StatementRunner.describe(event) + ", which is not a refusal of the"
+                        + " reference under test, so the probe's own row was invalid");
+                return null;
             }
             return null;
         }
