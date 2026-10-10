@@ -342,6 +342,12 @@ public class ReferentialActionOracle implements TestOracle {
                 foreignKey.isDeferrable() && dialect.getFeatures().supports(DDLFeature.DEFERRABLE_FK));
         boolean accepted = probe.isSucceeded();
         if (!accepted && !expectFailure) {
+            if (!isConstraintRejection(probe)) {
+                notes.add(prefix + "delete probe skipped, the engine refused the DELETE for a reason that is not "
+                        + "a constraint violation, so the declared " + action + " was never exercised ("
+                        + StatementRunner.describe(probe) + ")");
+                return findings;
+            }
             findings.add(ConstraintEnforcementOracle.Support.Finding.of(FailureKind.CONSTRAINT_NOT_ENFORCED,
                     database.getName(), "fk-on-delete-" + action.name(),
                     "ON DELETE " + action + " was declared but the delete was rejected",
@@ -589,6 +595,12 @@ public class ReferentialActionOracle implements TestOracle {
                 foreignKey.isDeferrable() && dialect.getFeatures().supports(DDLFeature.DEFERRABLE_FK));
         boolean accepted = probe.isSucceeded();
         if (!accepted && !expectFailure) {
+            if (!isConstraintRejection(probe)) {
+                notes.add(prefix + "update probe skipped, the engine refused the UPDATE for a reason that is not "
+                        + "a constraint violation, so the declared " + action + " was never exercised ("
+                        + StatementRunner.describe(probe) + ")");
+                return findings;
+            }
             findings.add(ConstraintEnforcementOracle.Support.Finding.of(FailureKind.CONSTRAINT_NOT_ENFORCED,
                     database.getName(), "fk-on-update-" + action.name(),
                     "ON UPDATE " + action + " was declared but the update was rejected",
@@ -997,8 +1009,11 @@ public class ReferentialActionOracle implements TestOracle {
     /**
      * Derives key values that are not present in the parent table, or null when no such value can be
      * derived for one of the columns.
+     *
+     * <p>Package-private so that the fitting can be asserted directly: the campaign probe asked for
+     * {@code a18 = 1000019} on a {@code SMALLINT} key.</p>
      */
-    private static Map<String, Object> freshKeyValues(Table parent, List<String> columns,
+    static Map<String, Object> freshKeyValues(Table parent, List<String> columns,
             Map<String, Object> parentRow) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (String column : columns) {
@@ -1019,10 +1034,7 @@ public class ReferentialActionOracle implements TestOracle {
             return null;
         }
         if (value instanceof Number) {
-            if (type != null && type.isIntegral()) {
-                return ((Number) value).longValue() + 1_000_003L;
-            }
-            return new java.math.BigDecimal(value.toString()).add(java.math.BigDecimal.valueOf(1_000_003L));
+            return freshNumericKeyValue((Number) value, type);
         }
         if (value instanceof String) {
             String text = (String) value;
@@ -1046,6 +1058,73 @@ public class ReferentialActionOracle implements TestOracle {
             return java.sql.Time.valueOf(((java.sql.Time) value).toLocalTime().plusSeconds(1));
         }
         return null;
+    }
+
+    /** How far the fresh key value is moved from the old one before the column's range is applied. */
+    private static final long FRESH_KEY_STEP = 1_000_003L;
+
+    /**
+     * A numeric key value far enough from {@code value} to be fresh, fitted into the column's range.
+     *
+     * <p>The probe used to add the step and hand the result to the engine unfitted, so on a
+     * {@code SMALLINT} key it asked for {@code UPDATE t_4 SET a18 = 1000019 WHERE a18 = 16} and MySQL
+     * refused the statement itself with {@code 1264 Out of range value for column 'a18'} — before any
+     * referential action could be observed, which the oracle then reported as "the declared action
+     * could not happen". Four of the two-hour run's thirteen findings were that, and all four were
+     * DDLSmith's own ({@code runs/REPORT-MYSQL-2H.md} §3.4).</p>
+     *
+     * <p>The step is kept, but the result is fitted to the column the value is written into
+     * ({@link DataModel#fitToType}); when the column is too narrow for the step in that direction the
+     * other direction is tried, and a value that is legal but not different from the old one is no
+     * probe at all and yields null. Whether the value is also <em>fresh</em> — absent from the parent
+     * table — is settled against the engine by the caller's own {@code SELECT COUNT(*)}.</p>
+     */
+    private static Object freshNumericKeyValue(Number value, DataType type) {
+        java.math.BigDecimal old = new java.math.BigDecimal(value.toString());
+        Object up = DataModel.fitToType(old.add(java.math.BigDecimal.valueOf(FRESH_KEY_STEP)), type);
+        if (!sameNumber(up, value)) {
+            return up;
+        }
+        Object down = DataModel.fitToType(old.subtract(java.math.BigDecimal.valueOf(FRESH_KEY_STEP)), type);
+        return sameNumber(down, value) ? null : down;
+    }
+
+    /** @return true when two numeric values are the same value, whatever Java types they arrived in */
+    private static boolean sameNumber(Object left, Object right) {
+        if (!(left instanceof Number) || !(right instanceof Number)) {
+            return java.util.Objects.equals(left, right);
+        }
+        return new java.math.BigDecimal(left.toString())
+                .compareTo(new java.math.BigDecimal(right.toString())) == 0;
+    }
+
+    /**
+     * @return true when the engine refused a statement because a constraint it declared was violated —
+     *         the only kind of refusal that says anything about the referential action under test
+     *
+     * <p>A probe refused for any other reason never became a valid statement about the declared action:
+     * a value outside the column's range ({@code 1264}, SQLSTATE {@code 22003}), a value too long, a
+     * CHECK the probe value breaks. Reporting those as "the declared action did not happen" was the
+     * whole of the two-hour run's fourth defect class ({@code runs/REPORT-MYSQL-2H.md} §3.4); with this
+     * check they are announced as an inconclusive probe instead.</p>
+     *
+     * <p>SQLSTATE class {@code 23} is the standard's "integrity constraint violation" and covers every
+     * error the probes legitimately expect: MySQL reports {@code 1451}, {@code 1452}, {@code 1048},
+     * {@code 1216}, {@code 1217} and {@code 1062} as {@code 23000}. MySQL's CHECK violation is
+     * {@code 3819} with SQLSTATE {@code HY000} — not a referential refusal, and correctly "not a
+     * constraint rejection" for this purpose. An engine that reports no SQLSTATE at all (SQLite's
+     * driver is one) is read through its own words, which is the same fallback
+     * {@link org.ddlsmith.conformance.ConformancePopulator} uses.</p>
+     */
+    private static boolean isConstraintRejection(ExecutionEvent event) {
+        String sqlState = event.getSqlState();
+        if (sqlState != null) {
+            return sqlState.startsWith("23");
+        }
+        String message = event.getErrorMessage();
+        String upper = message == null ? "" : message.toUpperCase(Locale.ROOT);
+        return upper.contains("FOREIGN KEY") || upper.contains("REFERENTIAL") || upper.contains("CONSTRAINT")
+                || upper.contains("NOT NULL") || upper.contains("DUPLICATE") || upper.contains("UNIQUE");
     }
 
     private RelationalSchema introspect(OracleContext context, DatabaseUnderTest database) {

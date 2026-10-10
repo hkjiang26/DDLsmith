@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -80,6 +81,49 @@ class ReferentialActionOracleTest {
     private static ForeignKey named(Table table, String name) {
         return table.getForeignKeys().stream().filter(key -> name.equals(key.getName())).findFirst()
                 .orElseThrow();
+    }
+
+    /**
+     * The probe writes a fresh key value into the parent's key column, and the column's own range
+     * decides what that value may be. The campaign's probe added a fixed step and handed the result to
+     * the engine unfitted, so on a {@code SMALLINT} key it asked for {@code a18 = 1000019} and MySQL
+     * refused the statement itself with {@code 1264 Out of range value for column 'a18'} — before any
+     * referential action could be observed, which the oracle reported as a defect of the engine
+     * (report §3.4).
+     */
+    @Test
+    void aFreshKeyValueIsFittedToTheColumnsRange() {
+        Table parent = smallintKeyParent();
+
+        assertEquals(32767L, ReferentialActionOracle
+                .freshKeyValues(parent, List.of("a18"), Map.<String, Object>of("a18", 16L)).get("a18"),
+                "the campaign's 16 + 1000003 does not fit SMALLINT");
+        assertEquals(1002803L, ReferentialActionOracle
+                .freshKeyValues(smallintKeyParent(DataType.integer()), List.of("a18"),
+                        Map.<String, Object>of("a18", 2800L))
+                .get("a18"), "a column wide enough keeps the step");
+    }
+
+    /** At the maximum there is no room upwards, so the probe has to look downwards instead. */
+    @Test
+    void aKeyAtItsMaximumMovesTheOtherWay() {
+        Table parent = smallintKeyParent();
+
+        assertEquals(-32768L, ReferentialActionOracle
+                .freshKeyValues(parent, List.of("a18"), Map.<String, Object>of("a18", 32767L)).get("a18"));
+    }
+
+    private static Table smallintKeyParent() {
+        return smallintKeyParent(DataType.smallint());
+    }
+
+    private static Table smallintKeyParent(DataType type) {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table parent = new Table("s", "t_4");
+        parent.addColumn(new Column("a18", type, false));
+        parent.setPrimaryKey(new PrimaryKey("pk_t_4", List.of("a18")));
+        schema.addTable(parent);
+        return parent;
     }
 
     /**

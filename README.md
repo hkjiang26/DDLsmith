@@ -320,7 +320,7 @@ java -jar target/DDLSmith.jar postgres --algorithm differential --compare-with p
 
 Everything below was measured on the committed code, not projected.
 
-**Unit and component tests — 304 tests, 0 failures** (`mvn test`):
+**Unit and component tests — 357 tests, 0 failures** (`mvn test`):
 
 | Suite | Tests | What it covers |
 | ----- | ----- | -------------- |
@@ -329,7 +329,9 @@ Everything below was measured on the committed code, not projected.
 | `SqliteDialectTest` / `H2DialectTest` / `DuckDbDialectTest` | 15 / 20 / 29 | type round trips, schema round trips, feature probes, ALTER round trips |
 | `PostgresDialectTest` / `MySqlDialectTest` | 27 / 32 | exact-SQL rendering assertions and type round trips (no live server) |
 | `SchemaOracleTest` / `ConstraintOracleTest` | 21 / 10 | each oracle in both directions against real in-memory SQLite and H2; the referential-action probes skip a parent key that is itself a foreign key column (MySQL 1452) |
-| `RandomlyTest`, `SchemaNormalizerTest`, `SchemaAdapterTest`, `RandomDDLGeneratorTest`, `CheckExpressionAnalyzerTest` | 8 / 20 / 12 / 6 / 10 | seeded reproducibility, schema comparison (including the `IN`-list spacing H2 uses), capability adaptation, DDL-model consistency, and the top-level `AND`/`OR` splitting the row generator relies on |
+| `RandomlyTest`, `SchemaNormalizerTest`, `SchemaAdapterTest`, `RandomDDLGeneratorTest`, `CheckExpressionAnalyzerTest` | 8 / 23 / 27 / 6 / 10 | seeded reproducibility, schema comparison (including the `IN`-list spacing H2 uses), capability adaptation (including which columns get the dialect's collation), DDL-model consistency, and the top-level `AND`/`OR` splitting the row generator relies on |
+| `GraphConformanceOracleTest` / `ConformancePlannerTest` / `ConformancePopulatorTest` | 6 / 7 / 5 | the materializing oracle in both directions on real SQLite and H2, the planner's guarantees (determinism, no repeated key, every gap announced), the operand fitting for generated columns, and the two rejection classes that must become notes rather than findings |
+| `ReferentialActionOracleTest` | 7 | which constraint a report quotes, the cascade-collision guard, and the fresh key value a probe writes being fitted to the column's range |
 | `PivotRowOracleCanonicalTest` | 5 | the canonical form a key tuple is compared in: the model's `Timestamp` and the driver's `LocalDateTime` describe the same stored value, and a value the engine really coerced still differs |
 | `IntegrationRegressionTest` | 7 | the defects that only a whole schema or a whole run could reveal: colliding index identities, unindexable key types and their propagation to referencing columns, DDL dumping, comment-only renderings, replayable failure logs, the parenthesised disjunction DuckDB reports, and a differential run reading each engine's own namespace |
 | `RunTerminationTest` | 1 | a multi-threaded run terminates once every database has been tested |
@@ -347,7 +349,7 @@ engines with **0 differences**.
 **The enhanced ER layer — measured on this build, not projected.** The feature catalogue it
 implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
 
-* `mvn test` — **304 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
+* `mvn test` — **357 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
   type, shared subclass, composite keys, nested composites, specialization completeness) and the
   category union-membership check a generated row has to satisfy;
 * the graph self-check — **1 200 diagrams** (6 generators × 200 seeds) plus a 720-diagram option
@@ -388,6 +390,13 @@ implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
   findings**, `--print-ddl-only` printed 1 651 schemas twice with 0 problems, and all six failure logs
   replayed to the statement. A seed block that used to report a `DATA_MISMATCH` reports 0 after the
   comparison fix.
+* the two-hour MySQL conformance experiment of 2026-10-10 (four rounds, `--oracle ALL` and
+  `graph-conformance`, latest MySQL image): **3 506 databases, ≥ 183 000 statements, 13 failures in 4
+  distinct classes** — one MySQL defect in the SQL-engine foreign key path (`bugs/mysql/005`, a foreign
+  key is not checked when a column of the index enforcing it is NULL) and three DDLSmith false-positive
+  classes, since fixed and re-measured one database at a time against the pre-fix build:
+  [runs/REPORT-MYSQL-2H.md](runs/REPORT-MYSQL-2H.md), raw A/B output in
+  [runs/verify-mysql-fixes-2h.txt](runs/verify-mysql-fixes-2h.txt).
 
 ## 11. Findings about the engines
 
@@ -544,6 +553,16 @@ relevant module's self-check:
   against both foreign key paths of one server version, so that a disagreement between them needs no
   cross-version confound. See [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md) and
   [runs/mysql-campaign/12h-b/REPORT.md](runs/mysql-campaign/12h-b/REPORT.md).
+* **MySQL compares strings its own way unless it is told otherwise, and DDLSmith now tells it.** The
+  server default (`utf8mb4_0900_ai_ci`) is case- and accent-insensitive, so a `UNIQUE` column accepted
+  `'HF'` and then refused `'hf'`, `CHECK (a <> 'x')` refused `'X'`, and `ENUM('a','A')` was refused at
+  `CREATE TABLE` time — none of which is what the schema DDLSmith asked for means. Generated MySQL
+  schemas therefore declare `COLLATE utf8mb4_0900_bin` on every character column
+  (`Dialect.getStringCollation`, applied by `SchemaAdapter`): code-point ordered and `NO PAD`, which is
+  exactly Java's `String.equals`, and available from MySQL 8.0.17. That comparison mismatch produced
+  five of the thirteen findings of the two-hour conformance experiment, all of them DDLSmith's own; the
+  fix, the two other false-positive classes it was found with, and their measurement one database at a
+  time are in [runs/REPORT-MYSQL-2H.md](runs/REPORT-MYSQL-2H.md) §7.
 * **DuckDB does not preserve character lengths or numeric precision**: `VARCHAR(3)` is stored and
   reported as `VARCHAR`, so its schema comparison falls back to type categories.
 

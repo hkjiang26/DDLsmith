@@ -20,6 +20,7 @@ import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.common.schema.View;
 import org.ddlsmith.ddl.DDLFeature;
 import org.ddlsmith.ddl.gen.SchemaAdapter;
+import org.ddlsmith.dbms.mysql.MySqlDialect;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -53,6 +54,70 @@ class SchemaAdapterTest {
         assertTrue(table.getCheckConstraints().isEmpty(), "check constraints are unsupported");
         assertNull(table.getComment(), "table comments are unsupported");
         assertFalse(notes.isEmpty(), "every degradation must be recorded as a note");
+    }
+
+    /**
+     * MySQL compares character columns case- and accent-insensitively by default, which is not how the
+     * schema's own keys, checks and views mean to compare: the two-hour experiment's largest
+     * false-positive class was DDLSmith planning two values that differ only in case for one unique
+     * column and MySQL refusing the second (report §3.2). The adapted schema therefore names the
+     * collation, and the note says so once rather than once per column.
+     */
+    @Test
+    void mysqlCharacterColumnsAreDeclaredWithAnExactComparisonCollation() {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table table = new Table("s", "t");
+        table.addColumn(new Column("id", DataType.integer(), false));
+        table.addColumn(new Column("v", DataType.varchar(20), true));
+        table.addColumn(new Column("c", DataType.charType(5), true));
+        table.addColumn(new Column("t", DataType.text(), true));
+        table.addColumn(new Column("kind", DataType.enumOf(List.of("a", "b")), true));
+        table.addColumn(new Column("uid", DataType.uuid(), true));
+        table.addColumn(new Column("payload", DataType.json(), true));
+        table.setPrimaryKey(new PrimaryKey("pk_t", List.of("id")));
+        schema.addTable(table);
+
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(schema, new MySqlDialect(), notes);
+        Table result = adapted.getTable("t");
+
+        assertEquals("utf8mb4_0900_bin", result.getColumn("v").getCollation(), "a VARCHAR column");
+        assertEquals("utf8mb4_0900_bin", result.getColumn("c").getCollation(), "a CHAR column");
+        assertEquals("utf8mb4_0900_bin", result.getColumn("t").getCollation(), "a TEXT column");
+        assertEquals("utf8mb4_0900_bin", result.getColumn("kind").getCollation(),
+                "an ENUM compares its labels under the column's collation");
+        assertEquals("utf8mb4_0900_bin", result.getColumn("uid").getCollation(),
+                "MySQL stores a UUID as CHAR(36), so it is a character column here");
+        assertNull(result.getColumn("payload").getCollation(), "JSON is not a collated type");
+        assertNull(result.getColumn("id").getCollation(), "a numeric column has no collation");
+        assertEquals(1, notes.stream().filter(note -> note.contains("COLLATE utf8mb4_0900_bin")).count(),
+                "one note covers the decision, not one per column: " + notes);
+    }
+
+    @Test
+    void aCollationTheSchemaNamesItselfIsKept() {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table table = new Table("s", "t");
+        table.addColumn(new Column("id", DataType.integer(), false));
+        table.addColumn(new Column("c", DataType.varchar(10), true).setCollation("utf8mb4_bin"));
+        table.setPrimaryKey(new PrimaryKey("pk_t", List.of("id")));
+        schema.addTable(table);
+
+        RelationalSchema adapted = SchemaAdapter.adapt(schema, new MySqlDialect(), new ArrayList<>());
+
+        assertEquals("utf8mb4_bin", adapted.getTable("t").getColumn("c").getCollation(),
+                "a schema that names its own collation was explicit about it");
+    }
+
+    @Test
+    void anEngineThatAlreadyComparesExactlyIsLeftAlone() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(richSchema(), new org.ddlsmith.dbms.sqlite.SqliteDialect(),
+                notes);
+
+        assertNull(adapted.getTable("t").getColumn("kind").getCollation(),
+                "SQLite's default comparison is the model's, so there is nothing to declare");
+        assertTrue(notes.stream().noneMatch(note -> note.contains("COLLATE")), notes.toString());
     }
 
     @Test
@@ -303,7 +368,8 @@ class SchemaAdapterTest {
         List<String> notes = new ArrayList<>();
         RelationalSchema adapted = SchemaAdapter.adapt(schema, new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
         assertEquals(DataType.varchar(100), adapted.getTable("t").getColumn("a").getType());
-        assertTrue(notes.isEmpty(), "4 x VARCHAR(100) is 1600 bytes and fits: " + notes);
+        assertTrue(notes.stream().noneMatch(note -> note.contains("narrowed")),
+                "4 x VARCHAR(100) is 1600 bytes and fits: " + notes);
     }
 
     /** A separate {@code CREATE INDEX} is rejected on its own, so it is capped by the same budget. */

@@ -127,6 +127,7 @@ public final class ConformancePlanner {
         materializeMultivaluedAttributes();
         clearUnfilledForeignKeys();
         repairGeneratedColumns();
+        fitGeneratedColumnOperands(plan);
         dropInvalidRows();
         dropDuplicateKeys();
         dropInvalidRows();
@@ -265,6 +266,156 @@ public final class ConformancePlanner {
             }
         }
     }
+
+    /**
+     * Keeps a value the graph supplies inside the range of every stored generated column it feeds.
+     *
+     * <p>The generated expressions DDLSmith's mapper writes are arithmetic on one of the entity's own
+     * numeric attributes — {@code a10 GENERATED ALWAYS AS (a1 + 1) STORED} — and the derived attribute's
+     * declared type is not tied to the type of the attribute it reads, so {@code a1} can be an
+     * {@code INT} while {@code a10} is a {@code SMALLINT}. Fitting a value to the column it is written
+     * into is then not enough: {@code a1 = 1028000} is a legal {@code INT} and still makes MySQL refuse
+     * the whole row with {@code 1264 Out of range value for column 'a10'}, because {@code a1 + 1} does
+     * not fit a {@code SMALLINT}. Measured on 26.7.0 while reviewing the two-hour experiment
+     * ({@code runs/REPORT-MYSQL-2H.md} §3.3): three of the thirteen findings were exactly this, and all
+     * three were DDLSmith's own.</p>
+     *
+     * <p>The operand is therefore clamped the way {@link #fit} clamps a value to its own column. Only
+     * the shape DDLSmith generates is understood — one column name, one {@code +} or {@code -}, one
+     * integer literal — and only when the generated column's type has a range this code can name; an
+     * expression it cannot read is left alone, and {@link ConformancePopulator} then turns a refusal
+     * that names a generated column into a note instead of a finding.</p>
+     *
+     * <p>A column that carries a reference is never touched: its value belongs to the row it points at,
+     * and moving it would break the reference rather than the generated column.</p>
+     *
+     * <p>Package-private and static so that the step can be exercised on a hand-written plan, without a
+     * graph: the arithmetic is easy to get wrong at the bounds and the campaign is too slow a place to
+     * find that out.</p>
+     */
+    static void fitGeneratedColumnOperands(ConformancePlan plan) {
+        Set<String> announced = new LinkedHashSet<>();
+        for (PlannedRow row : plan.getRows()) {
+            Table table = row.getTable();
+            Set<String> references = foreignKeyColumns(table);
+            for (Column column : table.getColumns()) {
+                GeneratedOperand operand = GeneratedOperand.parse(column);
+                if (operand == null) {
+                    continue;
+                }
+                Column source = table.getColumn(operand.column);
+                if (source == null || source.isGenerated() || references.contains(normalize(source.getName()))) {
+                    continue;
+                }
+                Object value = DataModel.getValue(row.getValues(), operand.column);
+                Long fitted = fittedOperand(operand, value);
+                if (fitted == null) {
+                    continue;
+                }
+                long[] bounds = operand.operandBounds();
+                row.getValues().put(operand.column, fit(fitted, source.getType()));
+                if (announced.add(normalize(table.getName()) + "." + normalize(operand.column))) {
+                    plan.note("the value of " + table.getName() + "." + operand.column + " is kept within "
+                            + bounds[0] + ".." + bounds[1] + " so that " + table.getName() + "."
+                            + column.getName() + " GENERATED ALWAYS AS (" + column.getGeneratedExpression()
+                            + ") stays inside its own " + column.getType().getName()
+                            + "; the graph value would have been accepted by the operand's column and refused by"
+                            + " the engine");
+                }
+            }
+        }
+    }
+
+    /**
+     * @return the value the operand of {@code generated}'s expression has to take for the expression to
+     *         stay inside the generated column's own type, or null when the value already fits — or when
+     *         the expression is not the shape DDLSmith writes, or its type has no range to compute with
+     *
+     * <p>Package-private so that the arithmetic can be asserted directly, including at the bounds:
+     * {@code SMALLINT GENERATED ALWAYS AS (a1 + 1)} has to clamp {@code 1028000} to {@code 32766} and
+     * to leave {@code 100} alone.</p>
+     */
+    static Long fittedOperand(Column generated, Object operandValue) {
+        return fittedOperand(GeneratedOperand.parse(generated), operandValue);
+    }
+
+    private static Long fittedOperand(GeneratedOperand operand, Object operandValue) {
+        if (operand == null || !(operandValue instanceof Number)) {
+            return null;
+        }
+        long number = ((Number) operandValue).longValue();
+        long[] bounds = operand.operandBounds();
+        if (bounds == null || (number >= bounds[0] && number <= bounds[1])) {
+            return null;
+        }
+        return Math.max(bounds[0], Math.min(bounds[1], number));
+    }
+
+    /**
+     * One operand of a generated expression of the shape DDLSmith writes: {@code <column> + <literal>}.
+     *
+     * <p>The bounds are computed backwards from the generated column: the expression has to land inside
+     * the generated column's range, so the operand has to land inside that range shifted by the
+     * literal. Saturation rather than overflow, because an integral bound may be {@link Long#MIN_VALUE}
+     * or {@link Long#MAX_VALUE} itself.</p>
+     */
+    private static final class GeneratedOperand {
+        private final String column;
+        private final long delta;
+        private final long[] targetBounds;
+
+        private GeneratedOperand(String column, long delta, long[] targetBounds) {
+            this.column = column;
+            this.delta = delta;
+            this.targetBounds = targetBounds;
+        }
+
+        /** @return the operand of the generated column's expression, or null when it is not that shape */
+        static GeneratedOperand parse(Column column) {
+            if (column == null || !column.isGenerated() || column.getGeneratedExpression() == null) {
+                return null;
+            }
+            java.util.regex.Matcher matcher = SIMPLE_ARITHMETIC.matcher(column.getGeneratedExpression());
+            if (!matcher.matches()) {
+                return null;
+            }
+            long[] target = DataModel.integralBounds(column.getType());
+            if (target == null) {
+                return null;
+            }
+            long literal;
+            try {
+                literal = Long.parseLong(matcher.group(3));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            // "a1 - 7" is "a1 + (-7)": one signed step covers both spellings
+            long delta = matcher.group(2).equals("-") ? -literal : literal;
+            return new GeneratedOperand(matcher.group(1), delta, target);
+        }
+
+        /** @return the inclusive range the operand has to stay in, or null when it cannot be computed */
+        long[] operandBounds() {
+            long low = saturated(targetBounds[0], -delta);
+            long high = saturated(targetBounds[1], -delta);
+            return low > high ? null : new long[] { low, high };
+        }
+
+        /** @return {@code value + delta}, clamped to the long range instead of wrapping around */
+        private static long saturated(long value, long delta) {
+            if (delta > 0 && value > Long.MAX_VALUE - delta) {
+                return Long.MAX_VALUE;
+            }
+            if (delta < 0 && value < Long.MIN_VALUE - delta) {
+                return Long.MIN_VALUE;
+            }
+            return value + delta;
+        }
+    }
+
+    /** One column, one operator and one literal, which is the only shape the mapper writes. */
+    private static final java.util.regex.Pattern SIMPLE_ARITHMETIC = java.util.regex.Pattern
+            .compile("\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*([+-])\\s*(\\d+)\\s*");
 
     /**
      * Drops the rows the database cannot hold as part of a consistent instance, and everything that
@@ -1841,8 +1992,13 @@ public final class ConformancePlanner {
         return column == null ? null : column.getType();
     }
 
-    /** @return every set of columns the table requires to be unique: the key, uniques and unique indexes */
-    private static List<List<String>> keySets(Table table) {
+    /**
+     * @return every set of columns the table requires to be unique: the key, uniques and unique indexes
+     *
+     * <p>Package-private because {@link ConformancePopulator} asks the engine about the same keys when a
+     * row it planned is refused as a duplicate.</p>
+     */
+    static List<List<String>> keySets(Table table) {
         List<List<String>> keySets = new ArrayList<>();
         if (table.getPrimaryKey() != null && !table.getPrimaryKey().getColumns().isEmpty()) {
             keySets.add(table.getPrimaryKey().getColumns());
@@ -1955,7 +2111,7 @@ public final class ConformancePlanner {
         return expressions;
     }
 
-    private Set<String> foreignKeyColumns(Table table) {
+    private static Set<String> foreignKeyColumns(Table table) {
         Set<String> result = new LinkedHashSet<>();
         for (ForeignKey foreignKey : table.getForeignKeys()) {
             for (String column : foreignKey.getColumns()) {
@@ -2009,58 +2165,14 @@ public final class ConformancePlanner {
      * Coerces a value to what the column can store, so that a planner value is never too wide.
      *
      * <p>It mirrors what the row generator does for the values it produces and adds the bounds the
-     * declared type implies: an integral value is clamped to the range of its category (a
-     * {@code SMALLINT} stored with a value in the millions is a planner mistake, and the engine that
-     * refuses it would be blamed for it), a decimal is clamped to its precision, and a textual value is
-     * truncated to its declared length.</p>
+     * declared type implies — an integral value clamped to the range of its category (including the
+     * unsigned ranges), a decimal clamped to its precision, a textual value truncated to its declared
+     * length. The rules themselves live in {@link DataModel#fitToType}, because the referential-action
+     * oracle needs the same answer for the fresh key value its probe writes; this method is the
+     * planner's name for them.</p>
      */
     static Object fit(Object value, DataType type) {
-        if (value == null || type == null) {
-            return value;
-        }
-        if (type.isIntegral() && value instanceof Number) {
-            long number = ((Number) value).longValue();
-            switch (type.getCategory()) {
-            case SMALLINT:
-                number = Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, number));
-                break;
-            case INTEGER:
-                number = Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, number));
-                break;
-            default:
-                break;
-            }
-            if (type.isUnsigned()) {
-                number = Math.max(0L, number);
-            }
-            return number;
-        }
-        if (type.isTextual() && value instanceof String && type.getLength() != null
-                && ((String) value).length() > type.getLength()) {
-            return ((String) value).substring(0, type.getLength());
-        }
-        if (type.isTextual() && !(value instanceof String)) {
-            String text = value.toString();
-            if (type.getLength() != null && text.length() > type.getLength()) {
-                text = text.substring(0, type.getLength());
-            }
-            return text;
-        }
-        if (type.getCategory() == DataType.Category.DECIMAL && value instanceof Number) {
-            BigDecimal decimal = value instanceof BigDecimal ? (BigDecimal) value
-                    : BigDecimal.valueOf(((Number) value).doubleValue());
-            Integer precision = type.getPrecision();
-            Integer scale = type.getScale();
-            if (precision != null) {
-                int integerDigits = precision - (scale == null ? 0 : scale);
-                BigDecimal limit = BigDecimal.TEN.pow(Math.max(0, integerDigits)).subtract(BigDecimal.ONE);
-                if (decimal.abs().compareTo(limit) > 0) {
-                    decimal = limit;
-                }
-            }
-            return decimal;
-        }
-        return value;
+        return DataModel.fitToType(value, type);
     }
 
     private static String normalize(String identifier) {

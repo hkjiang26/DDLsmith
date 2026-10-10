@@ -14,6 +14,7 @@ import java.util.Set;
 
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.Column;
+import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.conformance.ConformancePlan.PlannedRow;
 import org.ddlsmith.data.DataModel;
@@ -177,6 +178,66 @@ class ConformancePlannerTest {
             System.out.println("[conformance] " + dialect.getName() + ": " + rows + " planned row(s), " + notes
                     + " note(s) over 10 seeds");
         }
+    }
+
+    /* ------------------------------------------------------------------ generated columns */
+
+    /**
+     * The shape from the two-hour MySQL run (report §3.3): the operand fits its own column and the
+     * generated column does not, so the engine refuses a row the graph instance requires. Fitting the
+     * value to the column it is written into is not enough; it has to be fitted through the expression.
+     */
+    @Test
+    @DisplayName("an operand is clamped to what the generated column can hold, and left alone otherwise")
+    void anOperandIsFittedThroughTheGeneratedExpression() {
+        Column smallint = generated("a10", DataType.smallint(), "a1 + 1");
+
+        assertEquals(32766L, ConformancePlanner.fittedOperand(smallint, 1028000L),
+                "a1 + 1 has to land inside SMALLINT");
+        assertEquals(32766L, ConformancePlanner.fittedOperand(smallint, 32767L));
+        // -32769 makes a10 = -32768, which is legal; whether the operand's own column can hold it is
+        // settled afterwards by fit(), because the generated column's type and the operand's differ
+        assertEquals(-32769L, ConformancePlanner.fittedOperand(smallint, -1028000L));
+        assertEquals(null, ConformancePlanner.fittedOperand(smallint, 32766L), "a fitting value is left alone");
+        assertEquals(null, ConformancePlanner.fittedOperand(smallint, null));
+
+        // a subtraction bounds the other side: a10 >= -32768 means a1 >= -32761
+        Column minus = generated("m10", DataType.smallint(), "a1 - 7");
+        assertEquals(-32761L, ConformancePlanner.fittedOperand(minus, -1028000L));
+
+        // shapes and types the fitter cannot reason about are left to the populator's note
+        assertEquals(null, ConformancePlanner.fittedOperand(generated("x", DataType.smallint(), "a1 * a2"),
+                1028000L), "only the shape the mapper writes is understood");
+        assertEquals(null, ConformancePlanner.fittedOperand(generated("x", DataType.bigint(), "a1 + 1"),
+                1028000L), "the value fits BIGINT");
+        assertEquals(null, ConformancePlanner.fittedOperand(generated("x", DataType.varchar(10), "a1 + 1"),
+                1028000L), "a textual generated column has no range to fit");
+    }
+
+    @Test
+    @DisplayName("the step clamps the operand of a planned row and announces it")
+    void theStepClampsAPlannedOperand() {
+        Table table = new Table("s", "t");
+        table.addColumn(new Column("id", DataType.integer(), false));
+        table.addColumn(new Column("a1", DataType.integer(), true));
+        table.addColumn(generated("a10", DataType.smallint(), "a1 + 1"));
+        table.addColumn(new Column("b1", DataType.integer(), true));
+        table.addColumn(generated("b10", DataType.smallint(), "b1 + 1"));
+        table.setPrimaryKey(new org.ddlsmith.common.schema.PrimaryKey("pk_t", List.of("id")));
+        ConformancePlan plan = new ConformancePlan();
+        plan.addRow(new PlannedRow(table, new LinkedHashMap<>(Map.of("id", 1, "a1", 1028000L, "b1", 7L)),
+                "test row", 1, -1));
+
+        ConformancePlanner.fitGeneratedColumnOperands(plan);
+
+        assertEquals(32766L, plan.getRows().get(0).getValues().get("a1"));
+        assertEquals(7L, plan.getRows().get(0).getValues().get("b1"), "an operand already in range is untouched");
+        assertTrue(plan.getNotes().stream().anyMatch(note -> note.contains("GENERATED ALWAYS AS (a1 + 1)")),
+                "the clamp is not announced: " + plan.getNotes());
+    }
+
+    private static Column generated(String name, DataType type, String expression) {
+        return new Column(name, type, true).setGeneratedExpression(expression).setGeneratedStored(true);
     }
 
     /* ------------------------------------------------------------------ helpers */

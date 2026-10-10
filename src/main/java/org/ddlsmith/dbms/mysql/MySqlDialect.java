@@ -118,6 +118,45 @@ public class MySqlDialect extends AbstractDialect {
         return "mysql";
     }
 
+    /**
+     * The collation every generated character column is declared with, so that MySQL compares strings
+     * the way the canonical model does.
+     *
+     * <p>MySQL's server default is {@code utf8mb4_0900_ai_ci}: case- and accent-<em>insensitive</em>.
+     * The model's equality is Java's, so under that collation the schema MySQL implements is not the
+     * schema DDLSmith asked for — a {@code UNIQUE} column accepts {@code 'HF'} and then rejects
+     * {@code 'hf'} with {@code 1062}, {@code CHECK (a <> 'x')} rejects {@code 'X'} with {@code 3819},
+     * and {@code ENUM('a','A')} is refused at {@code CREATE TABLE} time with {@code 1291}
+     * ("duplicated value"). All three were measured on 26.7.0 while reviewing the two-hour
+     * experiment ({@code runs/REPORT-MYSQL-2H.md} §3.2, {@code runs/probe-mysql-collation-choice*.sh});
+     * with the column carrying this collation all three behave as the model expects.</p>
+     *
+     * <p>{@code utf8mb4_0900_bin} is chosen over {@code utf8mb4_bin} (the only other collation that
+     * ignores case) because of the pad attribute, which the manual states per collation
+     * ({@code INFORMATION_SCHEMA.COLLATIONS.PAD_ATTRIBUTE}, measured: {@code utf8mb4_0900_bin} is
+     * {@code NO PAD}, {@code utf8mb4_bin} is {@code PAD SPACE}): with {@code PAD SPACE} a trailing
+     * blank is not significant, so {@code 'a'} and {@code 'a '} would still be one value to the engine
+     * and two values to the model — the same defect in a narrower form. {@code utf8mb4_0900_bin} is
+     * code-point ordered and {@code NO PAD}, which is exactly Java's {@code String.equals}. It was
+     * introduced in MySQL 8.0.17; a dialect aimed at an older server (or at MariaDB, which has no
+     * {@code 0900} collations) overrides this method with {@code utf8mb4_bin} and accepts that
+     * trailing blanks compare equal there.</p>
+     *
+     * <p>The collation has to be the same on both sides of a foreign key: the manual requires it
+     * ("For nonbinary (character) string columns, the character set and collation must be the same",
+     * §15.1.20.5) and MySQL answers {@code 3780} otherwise, which is why {@code SchemaAdapter} sets it
+     * on every character column rather than on selected ones. It is not part of the column's type, so
+     * it does not enter any catalog comparison: {@code COLUMN_TYPE} keeps reporting the type and
+     * {@code SchemaNormalizer} does not compare collations.</p>
+     */
+    @Override
+    public String getStringCollation() {
+        return CHARACTER_COLLATION;
+    }
+
+    /** The collation {@link #getStringCollation()} declares, named once so that it is easy to find. */
+    static final String CHARACTER_COLLATION = "utf8mb4_0900_bin";
+
     @Override
     public DDLFeatureSet getFeatures() {
         // TYPE_INTERVAL is deliberately absent: MySQL has no INTERVAL column type and

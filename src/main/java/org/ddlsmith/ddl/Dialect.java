@@ -80,6 +80,36 @@ public interface Dialect extends DDLVisitor<String> {
     }
 
     /**
+     * The collation DDLSmith declares on its character columns so that the engine compares strings the
+     * way the canonical model does — code point by code point, with case, accents and trailing blanks
+     * significant — or null when the engine's default comparison already is that comparison.
+     *
+     * <p>The model's equality is Java's: two values are the same value only when they are the same
+     * characters. An engine whose default collation compares case- or accent-insensitively therefore
+     * implements something <em>other</em> than the schema DDLSmith asked for — a {@code UNIQUE}
+     * constraint, a {@code CHECK (a <> 'x')}, a {@code GROUP BY} or a join on such a column all mean
+     * something else — and every oracle that reasons about equality reports the difference as the
+     * engine's defect. Declaring the collation makes the engine's semantics and the model's the same
+     * thing, which is what {@code SchemaAdapter} is for: the intended schema has to be exactly what
+     * was asked of the engine.</p>
+     *
+     * <p>Measured on MySQL 26.7.0 (see {@code runs/REPORT-MYSQL-2H.md} §3.2): with the server default
+     * {@code utf8mb4_0900_ai_ci}, a {@code UNIQUE} column accepted {@code 'HF'} and then rejected
+     * {@code 'hf'} with {@code 1062}, {@code CHECK (a <> 'x')} rejected {@code 'X'}, and
+     * {@code ENUM('a','A')} was refused at {@code CREATE TABLE} time with {@code 1291}; all three
+     * behave as the model expects once the column carries {@code utf8mb4_0900_bin}.</p>
+     *
+     * <p>This is deliberately a {@code Dialect} method rather than an entry in
+     * {@link org.ddlsmith.ddl.gen.EngineTraits}: a collation name is engine-specific DDL vocabulary,
+     * and a composite dialect (a differential run's {@code CommonDialect}) has no single collation
+     * that every engine it describes accepts, so it leaves this at null and the common schema keeps
+     * the engines' defaults.</p>
+     */
+    default String getStringCollation() {
+        return null;
+    }
+
+    /**
      * The namespace the objects of <em>one generated database</em> live in.
      *
      * <p>An embedded engine gets a database of its own from the {@code {db}} placeholder in its JDBC

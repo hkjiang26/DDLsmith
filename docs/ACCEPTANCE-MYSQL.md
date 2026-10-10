@@ -908,3 +908,76 @@ MySQL 9.6 把外键强制与级联处理从 InnoDB 搬进了 SQL 引擎，`innod
 * **受信任的 oracle 组合在这一轮依然一条都没报**。所有发现都来自 `--oracle ALL` 系列，或来自顺着它们的一条
   报告往下追。这说明的是"剩下的 MySQL 缺陷长在哪里"，而不是"其它 oracle 没用"——`crash`、
   `schema-round-trip`、`idempotence` 正是让**工具**保持诚实的那一组。
+
+## 14. 两小时一致性实验与随后的修复（2026-10-10）
+
+这一节记录的不是引擎缺陷，而是**工具自己的三处误报**：两小时实验（`runs/REPORT-MYSQL-2H.md`）用
+`graph-conformance` 与 `--oracle ALL` 跑了 3 506 个数据库、13 条失败，分成 4 类——1 类是 MySQL 的真实缺陷
+（`bugs/mysql/005`，已单独归档），另外 3 类全是 DDLSmith 自己的问题。三处都已修复，并且**回到失败的同一个
+数据库**上做了 A/B 复测（基线 = 修复前提交 `f3411b2`）。
+
+### 14.1 大小写：默认排序规则不是模型的相等
+
+MySQL 服务端默认 `utf8mb4_0900_ai_ci` 大小写与重音**都不敏感**，于是 `UNIQUE` 列先接受 `'HF'` 再以 `1062`
+拒绝 `'hf'`；`CHECK (a <> 'x')` 会拒绝 `'X'`（3819）；`ENUM('a','A')` 在 `CREATE TABLE` 阶段就被拒（1291）——
+三者实测于 26.7.0（`runs/probe-mysql-collation-choice*.sh`）。这不是探针的问题，而是**声明出来的 schema 与
+引擎实现的 schema 不是同一个东西**：模型的相等是 Java 的 `String.equals`。
+
+修法放在方言与适配层，而不是让每个 oracle 都去理解排序规则：
+
+* `Dialect.getStringCollation()`（默认 null）；`MySqlDialect` 返回 `utf8mb4_0900_bin`；
+* `SchemaAdapter.applyStringCollation` 给 mapper 产出的**每一个字符列**声明该排序规则（每 schema 一条 note）。
+
+选 `utf8mb4_0900_bin` 而不是 `utf8mb4_bin`，依据是手册按排序规则给出的 pad 属性，并在容器里实测：
+`utf8mb4_bin` 是 **PAD SPACE**（尾部空格不参与比较，`'a' = 'a '` 为真），`utf8mb4_0900_bin` 是 **NO PAD**
+（`'a' ≠ 'a '`）且按码点比较——后者正是 Java 的相等。`utf8mb4_0900_bin` 自 MySQL 8.0.17 引入；面向更老服务端
+（或 MariaDB，它没有 `0900` 系列）的方言应覆写该方法用 `utf8mb4_bin`。外键两侧排序规则必须一致（手册
+§15.1.20.5；实测不一致报 `3780`），这正是"给所有字符列都声明"而不是"只给部分列声明"的原因。
+
+此外，oracle 侧保留一道兜底：重复键被拒时，它用引擎自己的 `=` 去把那条已存储的行查出来，只有该行在模型看来
+**确实是另一个值**时才记为 note；查不到这样的行，仍然照旧报 `CONSTRAINT_TOO_STRICT`——真缺陷不会被放过。
+
+### 14.2 生成列：值适合自己那一列，不等于适合它派生出的那一列
+
+`a10 SMALLINT GENERATED ALWAYS AS (a1 + 1) STORED` 配上 `a1 INT`：`a1 = 1028000` 完全合法，MySQL 却以
+`1264 Out of range value for column 'a10'` 拒绝整行（实测；手册只在"越界与溢出"一节给出 1264/22003，没有专门
+写生成列的情形）。修法两层：`ConformancePlanner.fitGeneratedColumnOperands` 把 mapper 实际会写的表达式形状
+（`<列> ± <字面量>`）的算子**反向夹**进生成列类型的范围；材料化器读不懂的表达式（如 `a * b`）则由
+`ConformancePopulator.valueComputedByTheEngine` 记为 note——只对 SQLSTATE 类别 `22` 且消息点名了生成列的
+拒绝生效。
+
+### 14.3 引用动作探针：越界的新键值
+
+探针给父键写"新值"时用的是固定步长且不做范围检查，于是出现了
+`UPDATE t_4 SET a18 = 1000019 WHERE a18 = 16`（`a18 SMALLINT`）——MySQL 拒绝语句本身（`1264`），而 oracle
+把这次拒绝读成"声明的动作没能发生"。修法：`DataModel.fitToType` / `integralBounds` 把新值夹进列的范围（列比
+步长还窄时改走另一个方向），并且**不是约束类拒绝就不算发现**（SQLSTATE 类别非 `23`，例如 `1264`=22003、
+`3811`/`3819` 这类 CHECK 拒绝），改为"探针无效"的 note。
+
+### 14.4 复测：同一个数据库，两个构建
+
+`runs/verify-mysql-fixes.sh` 把 13 条失败日志各自的 (plan, seed, slot) 变成 13 个单数据库进程
+（`--num-tries 1 --input-slot <slot> --random-seed <seed>`，因此数据库会**自己跑完**而不会被超时截断），
+每个用例一个独立命名空间（同一 schema 名会互相 DROP，第一次尝试就踩了这个坑），并带活性闸门（没连上库、
+或一条语句都没执行，一律记 `INVALID` 而不是通过）。
+
+| 运行 | 结果 |
+| ---- | ---- |
+| 修复前构建（`f3411b2`），要求每条日志都复现 | **13 / 13 复现**（oracle、kind 一致） |
+| 修复后构建，要求 12 条误报消失 | **12 / 12 消失**（连"被挡住的下一个 oracle"都没出现） |
+| 修复后构建，要求引擎缺陷仍在 | **仍然报出**：`constraint-enforcement` / `CONSTRAINT_NOT_ENFORCED` / `FOREIGN_KEY`，行 `t_3_id = 9223372036854775806`、`t_2_id = NULL`，索引 `uidx_t_4_0` —— 与 `bugs/mysql/005` 完全同一签名 |
+
+复现出来的那条日志与实验当天的原始日志**逐行只差三处**：数据库名、新增的排序规则 note、以及 schema 里多出来
+的 `COLLATE` 子句。同一容器上的实机自检（`org.ddlsmith.dbms.mysql.SelfCheck`）在修复后为
+**419 assertions / 0 failure(s)**。原始输出见 `runs/verify-mysql-fixes-2h.txt`。
+
+### 14.5 诚实边界
+
+* 只回答"这 13 条没了吗、引擎缺陷还在吗"，**没有重测比率**：要重测 `CONSTRAINT_TOO_STRICT` 的可信度，得再跑
+  一轮多小时（见 `runs/REPORT-MYSQL-2H.md` §5 第 4 条、§7.3）。
+* 排序规则**不下推到复合方言**：差分运行的 `CommonDialect` 没有一个所有成员都接受的排序规则，因此保持各引擎
+  默认；也就是说差分类别上这个误报类别依然存在（本轮未测）。
+* 手册引用取自 Oracle 官方镜像 `docs.oracle.com/cd/E17952_01/mysql-8.0-en/…`：本次会话 `dev.mysql.com`
+  持续返回 HTTP 403，9.x 没有镜像，因此 9.x 文档未查。
+* MySQL 8.0.17 以下与 MariaDB 会因未知排序规则拒绝 `CREATE TABLE`（错误 1273）——这是本次改动唯一的兼容性
+  代价，已在方言 javadoc 与 README §11 写明，覆写 `getStringCollation()` 即可回退。

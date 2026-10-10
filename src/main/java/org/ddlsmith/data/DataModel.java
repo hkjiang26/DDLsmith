@@ -348,6 +348,97 @@ public class DataModel {
         return sb.toString();
     }
 
+    /**
+     * The inclusive bounds the declared type imposes on an integral value.
+     *
+     * <p>Needed wherever DDLSmith has to keep a value inside a column it does not control: the
+     * materializer clamps a graph value to its own column, and both the materializer and the
+     * referential-action oracle have to keep a value inside a column the value is <em>derived</em> into
+     * — a stored generated column, or a key a probe rewrites. Fitting a value to the column it is
+     * written into is not enough in either case: {@code a10 SMALLINT GENERATED ALWAYS AS (a1 + 1)} is
+     * refused by MySQL with {@code 1264} for an {@code a1} that a plain {@code INT} holds happily, and
+     * {@code UPDATE t SET small_key = <old + 1000003>} is refused before any referential action can be
+     * observed.</p>
+     *
+     * <p>{@code unsigned BIGINT} returns null rather than {@code 2^64 - 1}: its maximum does not fit in
+     * a {@code long}, and every caller treats "no bound" as "do not clamp" — the honest answer for a
+     * range this method cannot express.</p>
+     *
+     * @return {@code {min, max}}, or null when the type is not integral or its range does not fit
+     */
+    public static long[] integralBounds(DataType type) {
+        if (type == null || !type.isIntegral()) {
+            return null;
+        }
+        boolean unsigned = type.isUnsigned();
+        switch (type.getCategory()) {
+        case SMALLINT:
+            return unsigned ? new long[] { 0L, 65535L } : new long[] { Short.MIN_VALUE, Short.MAX_VALUE };
+        case INTEGER:
+            return unsigned ? new long[] { 0L, 4294967295L }
+                    : new long[] { Integer.MIN_VALUE, Integer.MAX_VALUE };
+        case BIGINT:
+            return unsigned ? null : new long[] { Long.MIN_VALUE, Long.MAX_VALUE };
+        default:
+            return null;
+        }
+    }
+
+    /**
+     * Coerces a value to what a column of this type can store, so that a value DDLSmith derives is
+     * never one the engine has to refuse.
+     *
+     * <p>It adds the bounds the declared type implies: an integral value is clamped to the range of its
+     * category — including the unsigned ranges, because clamping an {@code UNSIGNED SMALLINT} to
+     * {@code Short.MAX_VALUE} would narrow a value the engine stores happily — a decimal is clamped to
+     * its precision, and a textual value is truncated to its declared length.</p>
+     *
+     * <p>It exists as one method because three places need the same answer: the conformance
+     * materializer for the values the graph supplies, the same materializer for the operands of a
+     * generated column (whose type can be narrower than the column the value is written into), and the
+     * referential-action oracle for the fresh key value its {@code ON UPDATE} probe writes. Each of
+     * them fit values to the wrong column before and produced findings about the engine for it.</p>
+     */
+    public static Object fitToType(Object value, DataType type) {
+        if (value == null || type == null) {
+            return value;
+        }
+        if (type.isIntegral() && value instanceof Number) {
+            long number = ((Number) value).longValue();
+            long[] bounds = integralBounds(type);
+            if (bounds != null) {
+                number = Math.max(bounds[0], Math.min(bounds[1], number));
+            }
+            return number;
+        }
+        if (type.isTextual() && value instanceof String && type.getLength() != null
+                && ((String) value).length() > type.getLength()) {
+            return ((String) value).substring(0, type.getLength());
+        }
+        if (type.isTextual() && !(value instanceof String)) {
+            String text = value.toString();
+            if (type.getLength() != null && text.length() > type.getLength()) {
+                text = text.substring(0, type.getLength());
+            }
+            return text;
+        }
+        if (type.getCategory() == DataType.Category.DECIMAL && value instanceof Number) {
+            BigDecimal decimal = value instanceof BigDecimal ? (BigDecimal) value
+                    : BigDecimal.valueOf(((Number) value).doubleValue());
+            Integer precision = type.getPrecision();
+            Integer scale = type.getScale();
+            if (precision != null) {
+                int integerDigits = precision - (scale == null ? 0 : scale);
+                BigDecimal limit = BigDecimal.TEN.pow(Math.max(0, integerDigits)).subtract(BigDecimal.ONE);
+                if (decimal.abs().compareTo(limit) > 0) {
+                    decimal = limit;
+                }
+            }
+            return decimal;
+        }
+        return value;
+    }
+
     /** @return a compact dump used in failure reports */
     public String describe() {
         StringBuilder sb = new StringBuilder();

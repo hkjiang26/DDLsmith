@@ -118,6 +118,31 @@ public final class ConformancePopulator {
                             + " column), so the engine correctly rejected it (" + event.getErrorMessage() + ")");
                     continue;
                 }
+                String valueTheEngineComputes = valueComputedByTheEngine(row.getTable(), event);
+                if (valueTheEngineComputes != null) {
+                    // The row was refused because of a value DDLSmith never inserts: the engine derives it
+                    // from the row's other columns. Whether a legal combination of the written columns
+                    // makes that derived value fit its own column is a property of the generated
+                    // expression, which the materializer does not evaluate - so the refusal says
+                    // something about the materialization, not about the constraint being too strict.
+                    result.notes.add("the row " + row.getProvenance() + " in " + row.getTable().getName()
+                            + " was refused because of " + valueTheEngineComputes + ", a value the engine computes"
+                            + " from the row's other columns; the materializer does not evaluate generated"
+                            + " expressions, so the row is not materialized (" + event.getErrorMessage() + ")");
+                    continue;
+                }
+                String coarserComparison = coarserComparison(context, database, row, event);
+                if (coarserComparison != null) {
+                    // Two rows DDLSmith's plan holds distinct are one value to the engine. The engine is
+                    // right under its own comparison; the model's equality is the one the schema was
+                    // written for. The check that proves it is the engine's own answer, so a genuine
+                    // uniqueness defect (an engine refusing a row that no stored row collides with)
+                    // still reaches the report as a rejection.
+                    result.notes.add("the row " + row.getProvenance() + " in " + row.getTable().getName()
+                            + " was refused as a duplicate although the materialized instance holds it"
+                            + " distinct: " + coarserComparison + " (" + event.getErrorMessage() + ")");
+                    continue;
+                }
                 result.rejections.add(new Rejection(row.getTable(), row, sql, event));
                 continue;
             }
@@ -164,9 +189,7 @@ public final class ConformancePopulator {
      *         value DDLSmith never inserts and therefore cannot predict when it plans the instance
      */
     private static boolean isUniquenessOverAGeneratedColumn(Table table, ExecutionEvent event) {
-        String message = event.getErrorMessage();
-        String upper = message == null ? "" : message.toUpperCase(Locale.ROOT);
-        if (!upper.contains("UNIQUE") && !upper.contains("DUPLICATE")) {
+        if (!mentionsUniqueness(event)) {
             return false;
         }
         for (UniqueConstraint unique : table.getUniqueConstraints()) {
@@ -180,6 +203,146 @@ public final class ConformancePopulator {
             }
         }
         return table.getPrimaryKey() != null && containsGenerated(table, table.getPrimaryKey().getColumns());
+    }
+
+    /** @return true when the engine's message says the row repeats a value a key requires to be unique */
+    private static boolean mentionsUniqueness(ExecutionEvent event) {
+        String message = event.getErrorMessage();
+        String upper = message == null ? "" : message.toUpperCase(Locale.ROOT);
+        return upper.contains("UNIQUE") || upper.contains("DUPLICATE");
+    }
+
+    /**
+     * The generated column an engine's refusal is about, when the refusal is a value-level one.
+     *
+     * <p>A stored generated column is computed by the engine from the row's other columns, so the
+     * materializer never writes it and cannot know whether the values it wrote make the derived value
+     * fit its own declared type. MySQL refuses such a row with {@code 1264 Out of range value for
+     * column 'a10'} (SQLSTATE {@code 22003}) when, for instance, {@code a10 SMALLINT GENERATED ALWAYS
+     * AS (a1 + 1) STORED} receives {@code a1 = 40000}: {@code a1} fits {@code INT} and {@code a10}
+     * does not fit {@code SMALLINT}. The fix for the expression shapes DDLSmith generates itself is in
+     * {@link ConformancePlanner}; this is the backstop for the shapes it does not evaluate, so that an
+     * expression the materializer cannot reason about becomes a note rather than an accusation.</p>
+     *
+     * <p>Only a data-exception refusal (SQLSTATE class {@code 22}, the standard's "data exception" —
+     * {@code 22003} for MySQL's out-of-range and {@code 22001} for its truncation) is treated this
+     * way, and only when the message names a generated column. A refusal for any other reason, or one
+     * that names only columns the row writes, stays a rejection: an engine is never excused by a
+     * message that merely mentions a column it computes.</p>
+     */
+    private static String valueComputedByTheEngine(Table table, ExecutionEvent event) {
+        String sqlState = event.getSqlState();
+        if (sqlState == null || !sqlState.startsWith("22")) {
+            return null;
+        }
+        String message = event.getErrorMessage();
+        if (message == null) {
+            return null;
+        }
+        for (Column column : table.getColumns()) {
+            if (!column.isGenerated()) {
+                continue;
+            }
+            // a whole-word match: a column named a1 must not be found inside a10, and engines quote
+            // the name differently ('a10', "a10", [a10], ...), so the boundary is what identifies it
+            java.util.regex.Pattern named = java.util.regex.Pattern.compile(
+                    "(?<![A-Za-z0-9_])" + java.util.regex.Pattern.quote(column.getName()) + "(?![A-Za-z0-9_])",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            if (named.matcher(message).find()) {
+                return "the generated column " + column.getName()
+                        + (column.getGeneratedExpression() == null || column.getGeneratedExpression().isBlank()
+                                ? ""
+                                : " GENERATED ALWAYS AS (" + column.getGeneratedExpression() + ")");
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Asks the engine whether it really has a row that its own comparison calls the same value as the
+     * rejected one, and whose values the model calls different ones.
+     *
+     * <p>MySQL's default collation is case- and accent-insensitive, so a plan that holds
+     * {@code ('2024-08-22', 'HF')} and {@code ('2024-08-22', 'hf')} distinct is asking for a
+     * {@code UNIQUE} key the engine cannot store — the engine is right and the model is the one that
+     * has to give. The same holds for a trailing blank under a {@code PAD SPACE} collation and for a
+     * value the column's type rounds to another one. Rather than model any of that, the oracle selects
+     * the stored row the engine's own {@code =} matches and compares it with the planned row: only a
+     * stored row that really is a different value to the model explains the refusal.</p>
+     *
+     * <p>The comparison is over the columns of one key of the table. It is only asked when the
+     * engine's message is a uniqueness complaint, and the answer "no such row" leaves the rejection a
+     * rejection, so a uniqueness defect (an engine refusing a row nothing collides with) is still
+     * reported.</p>
+     *
+     * @return a description of the difference between the stored row and the planned one, or null when
+     *         no stored row explains the refusal
+     */
+    private static String coarserComparison(OracleContext context, DatabaseUnderTest database, PlannedRow row,
+            ExecutionEvent event) {
+        if (!mentionsUniqueness(event)) {
+            return null;
+        }
+        Table table = row.getTable();
+        for (List<String> key : ConformancePlanner.keySets(table)) {
+            Map<String, Object> planned = new LinkedHashMap<>();
+            boolean complete = true;
+            for (String column : key) {
+                Object value = org.ddlsmith.data.DataModel.getValue(row.getValues(), column);
+                if (value == null) {
+                    complete = false;
+                    break;
+                }
+                planned.put(column, value);
+            }
+            if (!complete) {
+                continue;
+            }
+            String difference = storedRowDiffers(context, database, table, key, planned);
+            if (difference != null) {
+                return difference;
+            }
+        }
+        return null;
+    }
+
+    /** @return the difference between the planned key and a stored row the engine's {@code =} matches */
+    private static String storedRowDiffers(OracleContext context, DatabaseUnderTest database, Table table,
+            List<String> key, Map<String, Object> planned) {
+        List<String> selected = new ArrayList<>();
+        for (String column : key) {
+            selected.add(database.getDialect().quote(column));
+        }
+        String sql = "SELECT " + String.join(", ", selected) + " FROM "
+                + org.ddlsmith.oracle.impl.OracleSupport.tableReference(context, database, table)
+                + " WHERE " + org.ddlsmith.oracle.impl.ConstraintEnforcementOracle.Support
+                        .whereEquals(database.getDialect(), table, key, planned);
+        org.ddlsmith.common.query.QueryResult answer;
+        try {
+            answer = StatementRunner.query(context, database, sql, "probe-conformance-comparison");
+        } catch (Exception e) {
+            // an engine that cannot answer keeps the rejection: this check only ever removes a finding
+            return null;
+        }
+        for (List<Object> stored : answer.getRows()) {
+            List<String> differences = new ArrayList<>();
+            for (int i = 0; i < key.size() && i < stored.size(); i++) {
+                String column = key.get(i);
+                Column definition = table.getColumn(column);
+                org.ddlsmith.common.schema.DataType type = definition == null ? null : definition.getType();
+                String expected = org.ddlsmith.data.DataModel.canonical(planned.get(column), type);
+                String actual = org.ddlsmith.data.DataModel.canonical(stored.get(i), type);
+                if (!expected.equals(actual)) {
+                    differences.add(column + " holds " + actual + " where the plan asks for " + expected);
+                }
+            }
+            if (!differences.isEmpty()) {
+                return "a stored row in " + table.getName() + " compares equal to it under the engine's own"
+                        + " comparison but is a different value to the model (" + String.join("; ", differences)
+                        + ")";
+            }
+        }
+        return null;
     }
 
     private static boolean containsGenerated(Table table, List<String> columns) {

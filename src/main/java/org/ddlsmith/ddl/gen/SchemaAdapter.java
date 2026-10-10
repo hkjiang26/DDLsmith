@@ -62,6 +62,9 @@ public final class SchemaAdapter {
         for (Table table : schema.getTables()) {
             adapted.addTable(adaptTable(table, effectiveSchema, dialect, notes, tableRenames));
         }
+        // must run before the views are adapted: a view over a column the engine compares differently
+        // answers a different question, and the note has to be in the report either way
+        applyStringCollation(adapted, dialect, notes);
         // column renames are collected while the tables are adapted, and are needed afterwards for
         // the view definitions, which refer to columns of tables by name
         Map<String, String> allColumnRenames = new LinkedHashMap<>();
@@ -142,6 +145,47 @@ public final class SchemaAdapter {
         if (deferred > 0) {
             notes.add("deferred " + deferred + " foreign key(s) that close a reference cycle to an "
                     + "ALTER TABLE ... ADD CONSTRAINT executed after all tables exist");
+        }
+    }
+
+    /**
+     * Declares the collation the model assumes on every character column the mapper produced.
+     *
+     * <p>{@link Dialect#getStringCollation()} is null for every engine whose default comparison
+     * already is the model's (the embedded engines compare case-sensitively) and for a composite
+     * dialect, which has no single collation all its engines accept; then this does nothing.</p>
+     *
+     * <p>It is applied to <em>every</em> character column rather than to the ones an oracle happens
+     * to compare, for two reasons. The engine-side reason: MySQL requires the character set and
+     * collation to be the same on both sides of a foreign key (manual §15.1.20.5; measured as error
+     * {@code 3780}), so pinning only one side would make the constraint uncreatable. The
+     * DDLSmith-side reason: the intended schema is the thing every oracle and every catalog
+     * comparison is measured against, and a column whose collation is left to the server is a column
+     * whose meaning DDLSmith does not know.</p>
+     *
+     * <p>One note covers all of them: a line per column would drown the report, and the decision is
+     * one decision.</p>
+     */
+    private static void applyStringCollation(RelationalSchema schema, Dialect dialect, List<String> notes) {
+        String collation = dialect.getStringCollation();
+        if (collation == null || !dialect.getFeatures().supports(DDLFeature.COLLATION)) {
+            return;
+        }
+        int columns = 0;
+        for (Table table : schema.getTables()) {
+            for (Column column : table.getColumns()) {
+                if (column.getCollation() == null && column.getType() != null && column.getType().isTextual()) {
+                    // the column's own collation wins: a schema that names one was explicit about it
+                    column.setCollation(collation);
+                    columns++;
+                }
+            }
+        }
+        if (columns > 0) {
+            notes.add(columns + " character column(s) declared COLLATE " + collation + ": " + dialect.getName()
+                    + "'s default collation compares case- and accent-insensitively, which is not how the schema's"
+                    + " own constraints, keys and views mean to compare (measured: 'HF' = 'hf', CHECK (a <> 'x')"
+                    + " refuses 'X', ENUM('a','A') is refused at creation)");
         }
     }
 

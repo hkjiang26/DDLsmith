@@ -128,9 +128,27 @@ evidence that the census means something.
 9. **The oracle left its rows behind.** The differential algorithm checks *after* the oracles that
    every table it created is still empty, so the materialized rows turned that post-condition into
    findings about the oracle. The rows are now removed again whatever happens, in a `finally`.
+10. **A duplicate refusal was read as "the schema is too strict" although the engine's own comparison
+    explained it.** Found by the two-hour MySQL experiment (`runs/REPORT-MYSQL-2H.md` §3.2), and it is
+    engine-independent: the schema is DDLSmith's, so the *engine's* comparison is whatever the dialect
+    asked for, and leaving that to a server default made MySQL (whose default collation is case- and
+    accent-insensitive) the implementation of a schema nobody wrote. Five of the run's thirteen findings
+    were this. Fixed in two places: the dialect now names the comparison
+    (`Dialect.getStringCollation` — MySQL: `utf8mb4_0900_bin`, code-point ordered and `NO PAD`, which is
+    Java's `String.equals`), and the populator only excuses a duplicate when the engine *shows* a stored
+    row that its own `=` matches and the model calls a different value.
+11. **A value that fits its own column was refused for overflowing a generated column.** MySQL answered
+    `1264 Out of range value for column 'a10'` for a row whose written columns were all in range, because
+    `a10 SMALLINT GENERATED ALWAYS AS (a1 + 1) STORED` derives from an `INT` that the graph may fill with
+    1 028 000 (`runs/REPORT-MYSQL-2H.md` §3.3; three findings). The operand of the expression shape the
+    mapper writes is now clamped through the generated column's type, and a data-exception refusal that
+    names a generated column is a note rather than a finding — the materializer does not evaluate
+    generated expressions, and a rejection it cannot predict is not evidence about the schema.
 
 Two of them (5 and 7) are engine-independent properties any consumer of the data model wants;
-they were fixed in the shared helper (`DataModel`) rather than in the extension.
+they were fixed in the shared helper (`DataModel`) rather than in the extension, and 10 and 11 follow
+that pattern: the collation is a dialect decision applied by `SchemaAdapter`, the range fitting and the
+two rejection classifications are shared with the older oracles.
 
 ---
 
@@ -156,9 +174,10 @@ oracle of this family means adding a class and a line to the service file.
 
 * Aggregations, materialized views, recursive M:N role attribution and `--evolve-steps` runs are not
   materialized (each is announced).
-* The oracle has not been run against PostgreSQL or MySQL in this session: no live server was started.
-  Nothing in it is engine specific — it uses the dialect's own rendering and the introspector only
-  through the schema — but that claim is untested here.
+* The oracle has been run against MySQL — 2 485 databases in the two-hour experiment of 2026-10-10
+  (`runs/REPORT-MYSQL-2H.md`), which is where defects 10 and 11 above were found and, after the fixes,
+  where its findings are re-measured one database at a time (`runs/verify-mysql-fixes-2h.txt`).
+  PostgreSQL is still untested: no live server was started in this session.
 * Coverage is bounded by the row generator: where the reported instance cannot exist (a mandatory
   reference cycle, a unique constraint on a two-value domain), the oracle announces the gap instead of
   inventing a probe. Improving that means generating instances with deferred constraints or with a
