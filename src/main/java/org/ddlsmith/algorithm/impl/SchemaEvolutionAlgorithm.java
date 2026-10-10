@@ -43,11 +43,34 @@ public class SchemaEvolutionAlgorithm extends AbstractTestingAlgorithm {
 
         executeCreateScript(context, primary, generated.adaptedSchema);
 
+        // The create script is the one place a table can go missing with no later statement to blame.
+        // Checking it before the first evolution step is what keeps the divergence report honest: the
+        // loop below reports the statement it has just run, so without this check a table the create
+        // script never managed to build is pinned on the first DDL step that happens to succeed, and
+        // the report then claims to "pinpoint the statement that introduced the divergence" about a
+        // statement that had nothing to do with it. Measured on the MySQL campaign: ten databases
+        // blamed an unrelated ALTER TABLE or CREATE VIEW for a missing table.
+        List<OracleFailure> failures = new ArrayList<>();
+        primary.setIntendedSchema(generated.adaptedSchema);
+        context.setIntendedSchema(generated.adaptedSchema);
+        List<org.ddlsmith.introspection.SchemaDifference> atCreation = compare(context, primary,
+                generated.adaptedSchema);
+        if (!atCreation.isEmpty()) {
+            failures.add(new OracleFailure(OracleFailure.FailureKind.SCHEMA_MISMATCH, getName(),
+                    "the create script did not produce the intended schema",
+                    "The schema the engine reports does not match the schema the create script below was "
+                            + "meant to build, and no evolution statement has run yet, so the difference "
+                            + "was left behind by the create script itself.\n\n"
+                            + rejectedStatements(context)
+                            + SchemaNormalizer.render(atCreation),
+                    executedScript(context), context.getSeed(), describeDatabases(context), null));
+            return failures;
+        }
+
         int steps = options.getEvolveSteps() > 0 ? options.getEvolveSteps()
                 : Math.max(1, options.getNumDdlStatements() / 4);
         RandomDDLGenerator evolution = new RandomDDLGenerator(generated.adaptedSchema, state.getDialect(), options);
 
-        List<OracleFailure> failures = new ArrayList<>();
         List<DDLStatement> history = new ArrayList<>();
         for (int step = 0; step < steps; step++) {
             DDLStatement statement = evolution.nextStatement().orElse(null);
@@ -110,6 +133,37 @@ public class SchemaEvolutionAlgorithm extends AbstractTestingAlgorithm {
             for (String sql : database.getDialect().renderAll(statement)) {
                 sb.append(sql).append(";\n");
             }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * @return the statements of the create script that the engine refused, one per line, or a note
+     *         that it accepted all of them.
+     *
+     * <p>A create script that fails silently is the case this check exists for, and the rejection is
+     * the whole diagnosis: without it the report would only say that a table is missing.</p>
+     */
+    private static String rejectedStatements(OracleContext context) {
+        StringBuilder sb = new StringBuilder();
+        for (OracleContext.ExecutionEvent event : context.getExecutionEvents()) {
+            if (!event.isSucceeded()) {
+                sb.append("Rejected by the engine:\n  ")
+                        .append(org.ddlsmith.oracle.StatementRunner.describe(event)).append("\n\n");
+            }
+        }
+        if (sb.length() == 0) {
+            sb.append("The engine accepted every statement of the create script, so the difference is "
+                    + "between what was asked of it and what it recorded.\n\n");
+        }
+        return sb.toString();
+    }
+
+    /** @return exactly the statements the create script sent, in order */
+    private static String executedScript(OracleContext context) {
+        StringBuilder sb = new StringBuilder();
+        for (OracleContext.ExecutionEvent event : context.getExecutionEvents()) {
+            sb.append(event.getSql()).append(";\n");
         }
         return sb.toString();
     }
