@@ -186,6 +186,223 @@ public final class EngineTraits {
     }
 
     /**
+     * @return true when the engine cannot carry out a self-referential {@code ON UPDATE CASCADE} or
+     *         {@code ON UPDATE SET NULL}, so that asking for one is asking for a statement the engine
+     *         will refuse.
+     *
+     * <p>The MySQL manual states it as a rule rather than a limitation: "If {@code ON UPDATE CASCADE}
+     * or {@code ON UPDATE SET NULL} recurses to update the <em>same table</em> it has previously
+     * updated during the same cascade, it acts like {@code RESTRICT}. This means that you cannot use
+     * self-referential {@code ON UPDATE CASCADE} or {@code ON UPDATE SET NULL} operations. … A
+     * self-referential {@code ON DELETE SET NULL}, on the other hand, is possible, as is a
+     * self-referential {@code ON DELETE CASCADE}." Measured on 26.7.0: the update is refused with
+     * error 1451, identically with {@code innodb_native_foreign_keys} on and off, and PostgreSQL
+     * carries the same schema out without complaint — which is what made it look like a defect until
+     * the manual was checked.</p>
+     *
+     * <p>Only the two {@code ON UPDATE} actions are affected, which is why this is separate from the
+     * action capabilities in {@link org.ddlsmith.ddl.DDLFeatureSet}: {@code FK_CASCADE} and
+     * {@code FK_SET_NULL} are both true for MySQL, and both are still unavailable <em>here</em>. The
+     * campaign made this the largest source of false findings — 186 generated databases put a
+     * cascading action on the update side of a self-referencing foreign key, the engine refused every
+     * one of them, and the crash oracle reported each refusal as an engine defect.</p>
+     */
+    public static boolean refusesSelfReferentialUpdateAction(java.util.function.Predicate<String> isEngine) {
+        return isEngine.test("mysql") || isEngine.test("mariadb");
+    }
+
+    /**
+     * @return true when the engine's error code is its answer to breaking one of the limits this class
+     *         encodes, so that the rejection is evidence about DDLSmith's generator rather than about
+     *         the engine.
+     *
+     * <p>{@link #maxIndexColumns}, {@link #maxIndexKeyBytes} and
+     * {@link #refusesCheckOnReferentialActionColumn} are limits the generator has to respect; a
+     * statement that breaks one is not a statement the dialect ever declared support for, so an oracle
+     * that reports it as "the engine rejected a construct it claims to implement" is filing a false
+     * finding. MySQL states none of them through the "feature not supported" SQLState an oracle can
+     * recognise — {@code Specified key was too long; max key length is 3072 bytes} arrives as
+     * {@code 42000}, the same class as a syntax error — which is why the codes are listed here.</p>
+     *
+     * <p>The list is deliberately short. An error code that is not on it stays reportable, because
+     * excusing an engine for something the generator cannot show it was asked to do could hide a real
+     * defect.</p>
+     */
+    public static boolean isModeledLimitFailure(java.util.function.Predicate<String> isEngine, int errorCode) {
+        if (!isEngine.test("mysql") && !isEngine.test("mariadb")) {
+            return false;
+        }
+        switch (errorCode) {
+        case 1070:
+            // ER_TOO_MANY_KEY_PARTS            - maxIndexColumns
+        case 1071:
+            // ER_TOO_LONG_KEY                  - maxIndexKeyBytes
+        case 3823:
+            // ER_CHECK_CONSTRAINT_REFERS_AUTO_INCREMENT_COLUMN's sibling:
+            // "Column 'x' cannot be used in a check constraint: needed in a foreign key constraint
+            // referential action"             - refusesCheckOnReferentialActionColumn
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    /**
+     * @return true when the engine checks {@code RESTRICT} no earlier than {@code NO ACTION}, which
+     *         makes the two interchangeable there.
+     *
+     * <p>Standard SQL separates them: {@code RESTRICT} is checked as soon as the parent row is touched
+     * and cannot be deferred, while {@code NO ACTION} is checked once the statement has finished. The
+     * MySQL manual puts InnoDB on the other side of that line — "Specifying {@code RESTRICT} (or
+     * {@code NO ACTION}) is the same as omitting the {@code ON DELETE} or {@code ON UPDATE} clause",
+     * and "For InnoDB, this is equivalent to {@code RESTRICT}" — and 26.7.0 behaves that way: a child
+     * row held by a {@code RESTRICT} foreign key is still removed by a sibling {@code ON DELETE
+     * CASCADE} on the same parent key, which a check made the moment the parent row is touched would
+     * have prevented. PostgreSQL keeps the split, so this is an engine trait rather than a general
+     * truth about referential actions.</p>
+     */
+    public static boolean restrictIsNoAction(java.util.function.Predicate<String> isEngine) {
+        return isEngine.test("mysql") || isEngine.test("mariadb");
+    }
+
+    /**
+     * @return the largest number of bytes the engine accepts in one index key, or
+     *         {@link Integer#MAX_VALUE} when it imposes no limit DDLSmith has to know about.
+     *
+     * <p>InnoDB answers {@code Specified key was too long; max key length is 3072 bytes} (error 1071)
+     * and rejects the whole {@code CREATE TABLE} or {@code CREATE INDEX}. The manual gives 3072 bytes
+     * for the {@code DYNAMIC} and {@code COMPRESSED} row formats and 767 bytes for {@code REDUNDANT}
+     * and {@code COMPACT}; a page size below 16KB lowers it proportionally (1536 bytes at 8KB, 768 at
+     * 4KB). DDLSmith takes the 16KB/DYNAMIC figure because that is what a server defaults to —
+     * measured on 26.7.0, which reports {@code innodb_default_row_format=dynamic}.</p>
+     *
+     * <p>The limit is on <em>bytes</em>, not characters, so how many characters fit depends on the
+     * character set: {@code VARCHAR(768)} fills a key on its own under utf8mb4 and
+     * {@code VARCHAR(3072)} does under latin1. See {@link #indexKeyBytes}.</p>
+     */
+    public static int maxIndexKeyBytes(java.util.function.Predicate<String> isEngine) {
+        if (isEngine.test("mysql") || isEngine.test("mariadb")) {
+            return 3072;
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * Bytes one character costs in a MySQL index key.
+     *
+     * <p>DDLSmith does not pin a character set: it creates its database through the server's default,
+     * and every MySQL DDLSmith has been pointed at reports {@code character_set_server=utf8mb4},
+     * which is also the server default since 8.0. Four is therefore the honest figure for the
+     * generated schema, and it is the pessimistic one among the character sets a server would pick.</p>
+     */
+    private static final int MYSQL_BYTES_PER_CHARACTER = 4;
+
+    /**
+     * @return the number of bytes a column of this type occupies in a MySQL index key, or -1 for a
+     *         type with no fixed upper bound (a large object, JSON or an array), which cannot be a
+     *         key column at all.
+     *
+     * <p>The figures are InnoDB's storage sizes, not the width of the rendered type name: an
+     * {@code ENUM} is indexed by its ordinal rather than by its label, so two bytes cover even an
+     * enumeration with more than 255 members.</p>
+     */
+    public static int indexKeyBytes(org.ddlsmith.common.schema.DataType type) {
+        if (type == null) {
+            return 0;
+        }
+        switch (type.getCategory()) {
+        case BOOLEAN:
+            return 1;
+        case SMALLINT:
+            return 2;
+        case INTEGER:
+            return 4;
+        case BIGINT:
+            return 8;
+        case REAL:
+            return 4;
+        case DOUBLE:
+            return 8;
+        case DATE:
+            return 3;
+        case TIME:
+            return 3;
+        case TIMESTAMP:
+        case TIMESTAMPTZ:
+            // DATETIME(6) is five bytes; it is the widest temporal type DDLSmith emits
+            return 5;
+        case DECIMAL:
+            return decimalKeyBytes(type.getPrecision(), type.getScale());
+        case ENUM:
+            return 2;
+        case CHAR:
+        case VARCHAR:
+        case UUID:
+            return keyCharacterLength(type) * MYSQL_BYTES_PER_CHARACTER;
+        default:
+            // TEXT, BLOB, JSON, ARRAY, INTERVAL: unbounded, and MySQL refuses to index them anyway
+            return -1;
+        }
+    }
+
+    /** @return how many characters a character-typed key column is declared with */
+    private static int keyCharacterLength(org.ddlsmith.common.schema.DataType type) {
+        if (type.getLength() != null) {
+            return type.getLength();
+        }
+        // a UUID is a fixed 36-character string; every dialect that keeps the type as UUID still
+        // renders it as a character column of that width
+        return 36;
+    }
+
+    /**
+     * @param availableBytes what is left of the key budget for the columns still to be sized
+     * @param remainingColumns how many of them there are, this one included
+     * @param declaredLength the length the column is declared with now
+     * @return the length to declare the column with so that it shares the remainder fairly, or null
+     *         when the declared length already fits and nothing has to change
+     */
+    public static Integer keyColumnLengthFitting(int availableBytes, int remainingColumns, int declaredLength) {
+        int perColumn = availableBytes / Math.max(1, remainingColumns);
+        int allowed = perColumn / MYSQL_BYTES_PER_CHARACTER;
+        if (allowed >= declaredLength) {
+            return null;
+        }
+        // a key column narrower than one character is not a column; the fixed part of a key is far
+        // below the budget, so the floor is never what decides the outcome
+        return Math.max(1, allowed);
+    }
+
+    /**
+     * @return the bytes MySQL packs a {@code DECIMAL} of this precision and scale into
+     */
+    private static int decimalKeyBytes(Integer precision, Integer scale) {
+        int total = precision == null ? 10 : precision;
+        int fractional = scale == null ? 0 : Math.min(scale, total);
+        return decimalDigitsToBytes(total - fractional) + decimalDigitsToBytes(fractional);
+    }
+
+    /** MySQL packs nine decimal digits into four bytes, and a partial group still takes a whole one. */
+    private static int decimalDigitsToBytes(int digits) {
+        int bytes = (digits / 9) * 4;
+        switch (digits % 9) {
+        case 0:
+            return bytes;
+        case 1:
+        case 2:
+            return bytes + 1;
+        case 3:
+        case 4:
+            return bytes + 2;
+        case 5:
+        case 6:
+            return bytes + 3;
+        default:
+            return bytes + 4;
+        }
+    }
+
+    /**
      * @param isEngine answers whether one of the engines a dialect describes is the named one
      * @return true when changing a column's type <em>replaces its whole definition</em>, so that every
      *         attribute the statement does not restate is dropped

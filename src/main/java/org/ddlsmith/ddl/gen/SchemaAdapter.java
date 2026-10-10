@@ -91,6 +91,7 @@ public final class SchemaAdapter {
         }
         // these rules need the keys of every table to be known, so they run on the whole schema
         applyKeyTypeSubstitutions(adapted, dialect, notes);
+        applyIndexKeyLengthLimits(adapted, dialect, notes);
         resolveReferenceCycles(adapted, dialect, notes);
         return adapted;
     }
@@ -291,6 +292,21 @@ public final class SchemaAdapter {
         // t_6.id_2 to INTEGER after t_1.t_6_id_2 has already been looked at, so the last link keeps the
         // old BIGINT — and DuckDB then refuses the foreign key with "incompatible types between column
         // id_2 (INTEGER) and column t_6_id_2 (BIGINT)", which is a defect of the generator.
+        alignForeignKeyTypes(schema, notes);
+    }
+
+    /**
+     * Makes every foreign key column the same type as the key column it references.
+     *
+     * <p>Substituting a key's type makes it differ from the foreign key columns that reference it,
+     * which engines reject as "uncomparable", so those columns are aligned afterwards — and the
+     * alignment must follow the substitution, not precede it. It runs to a fixed point because a key
+     * type can be rewritten in several steps along a chain of references; see the caller.</p>
+     *
+     * <p>Two character columns that differ only in length are aligned to the shorter one, so that the
+     * alignment can only ever narrow: see {@link #alignedType}.</p>
+     */
+    private static void alignForeignKeyTypes(RelationalSchema schema, List<String> notes) {
         boolean changed = true;
         int rounds = 0;
         while (changed && rounds++ <= schema.getTables().size() + 1) {
@@ -305,18 +321,173 @@ public final class SchemaAdapter {
                             && i < foreignKey.getReferencedColumns().size(); i++) {
                         Column child = table.getColumn(foreignKey.getColumns().get(i));
                         Column referenced = parent.getColumn(foreignKey.getReferencedColumns().get(i));
-                        if (child == null || referenced == null || child.getType().equals(referenced.getType())) {
+                        if (child == null || referenced == null) {
+                            continue;
+                        }
+                        DataType aligned = alignedType(child.getType(), referenced.getType());
+                        if (aligned.equals(child.getType())) {
                             continue;
                         }
                         notes.add("type of " + table.getName() + "." + child.getName() + " changed from "
-                                + child.getType().getName() + " to " + referenced.getType().getName()
+                                + child.getType().getName() + " to " + aligned.getName()
                                 + " so that it matches the key column it references in " + parent.getName());
-                        child.setType(referenced.getType());
+                        child.setType(aligned);
                         changed = true;
                     }
                 }
             }
         }
+    }
+
+    /**
+     * @return the type a foreign key column has to be declared with to stay comparable with the key
+     *         column it references.
+     *
+     * <p>Normally the referenced column's type: that is what the engine compares, and DuckDB refused a
+     * foreign key outright when the two differed ("incompatible types between column id_2 (INTEGER)
+     * and column t_6_id_2 (BIGINT)").</p>
+     *
+     * <p>Two character columns are the exception, and the shorter length wins. A length is not part of
+     * what a foreign key compares — the MySQL manual says so for this exact case, "Corresponding
+     * columns in the foreign key and the referenced key must have similar data types. … The length of
+     * string types need not be the same." — and only narrowing is safe in both directions: a key budget
+     * is enforced by narrowing, so widening a column back to the referenced length would undo it,
+     * while a column narrower than the key it references still holds every value that key can. A join
+     * table whose primary key is its four foreign key columns is narrowed as a whole, while the
+     * single-column key each of them points at usually is not, so the two rules would otherwise undo
+     * each other on every round.</p>
+     */
+    private static DataType alignedType(DataType child, DataType referenced) {
+        boolean bothCharacter = child.getCategory() == referenced.getCategory()
+                && (child.getCategory() == DataType.Category.CHAR
+                        || child.getCategory() == DataType.Category.VARCHAR);
+        if (bothCharacter && child.getLength() != null && referenced.getLength() != null) {
+            return child.getLength() <= referenced.getLength() ? child : referenced;
+        }
+        return referenced;
+    }
+
+    /* ------------------------------------------------------------------ index key size */
+
+    /** One key of a table, as the adapter has to check it against the engine's key budget. */
+    private record Key(String label, List<String> columns) {
+    }
+
+    /** Every key a {@code CREATE TABLE} carries implicitly, plus the separate indexes. */
+    private static List<Key> keysOf(Table table) {
+        List<Key> keys = new ArrayList<>();
+        if (table.getPrimaryKey() != null) {
+            keys.add(new Key("primary key", table.getPrimaryKey().getColumns()));
+        }
+        for (UniqueConstraint unique : table.getUniqueConstraints()) {
+            keys.add(new Key("unique constraint " + unique.getName(), unique.getColumns()));
+        }
+        for (Index index : table.getIndexes()) {
+            keys.add(new Key("index " + index.getName(), index.getColumns()));
+        }
+        return keys;
+    }
+
+    /**
+     * Keeps every key within the engine's per-index byte budget.
+     *
+     * <p>An engine may cap the size of one index entry, and the cap is on bytes rather than on
+     * characters or on the number of key parts. InnoDB caps it at 3072 bytes and rejects the whole
+     * statement with error 1071. That is what a four-column key over TEXT columns runs into: the type
+     * substitution above widened each of them to {@code VARCHAR(255)} so that they could be key
+     * columns at all, and the key then needs 4080 bytes and is never created. The rejection used to be
+     * filed as an engine defect even though the generator asked for a key the engine never claimed to
+     * accept.</p>
+     *
+     * <p>The key is what the ER mapping expresses and cannot give way, so as with an unindexable type
+     * the type gives way: the variable-width columns of an oversized key are narrowed until it fits.
+     * Dropping a key is never necessary, because a key's fixed-width part cannot reach the budget on
+     * its own — at most sixteen parts of at most eight bytes each — so narrowing the variable part
+     * always brings the total down.</p>
+     *
+     * <p>This runs after the type substitution, which is what makes the widths final. Each round that
+     * changes a width re-aligns the foreign key columns that reference it, for the reason
+     * {@link #alignForeignKeyTypes} exists: a key column and the columns pointing at it must not end
+     * up declared with different types.</p>
+     */
+    private static void applyIndexKeyLengthLimits(RelationalSchema schema, Dialect dialect, List<String> notes) {
+        int budget = EngineTraits.maxIndexKeyBytes(dialect::includesEngine);
+        if (budget == Integer.MAX_VALUE) {
+            return;
+        }
+        boolean changed = true;
+        int rounds = 0;
+        while (changed && rounds++ <= schema.getTables().size() + 1) {
+            changed = false;
+            for (Table table : schema.getTables()) {
+                for (Key key : keysOf(table)) {
+                    changed |= narrowKeyToBudget(table, key, budget, dialect, notes);
+                }
+            }
+            if (changed) {
+                alignForeignKeyTypes(schema, notes);
+            }
+        }
+    }
+
+    /** @return true when a column of {@code key} had to be narrowed to bring the key within budget */
+    private static boolean narrowKeyToBudget(Table table, Key key, int budget, Dialect dialect,
+            List<String> notes) {
+        int total = 0;
+        int fixed = 0;
+        List<Column> variable = new ArrayList<>();
+        for (String name : key.columns()) {
+            Column column = table.getColumn(name);
+            if (column == null) {
+                continue;
+            }
+            int bytes = EngineTraits.indexKeyBytes(column.getType());
+            if (bytes < 0) {
+                // no fixed upper bound means no key column; the index adapter removed these already
+                continue;
+            }
+            total += bytes;
+            if (isVariableWidth(column.getType())) {
+                variable.add(column);
+            } else {
+                fixed += bytes;
+            }
+        }
+        if (total <= budget || variable.isEmpty()) {
+            return false;
+        }
+        int remaining = budget - fixed;
+        boolean narrowed = false;
+        for (int i = 0; i < variable.size(); i++) {
+            Column column = variable.get(i);
+            Integer allowed = EngineTraits.keyColumnLengthFitting(remaining, variable.size() - i,
+                    column.getType().getLength());
+            if (allowed == null) {
+                remaining -= EngineTraits.indexKeyBytes(column.getType());
+                continue;
+            }
+            DataType replacement = withLength(column.getType(), allowed);
+            notes.add("type of key column " + table.getName() + "." + column.getName() + " narrowed from "
+                    + column.getType().getName() + " to " + replacement.getName() + ": the " + key.label()
+                    + " of " + table.getName() + " needs more than " + budget
+                    + " bytes, which " + dialect.getName() + " does not allow in one index key");
+            column.setType(replacement);
+            remaining -= EngineTraits.indexKeyBytes(replacement);
+            narrowed = true;
+        }
+        return narrowed;
+    }
+
+    /** @return true for a character type whose declared length can be narrowed */
+    private static boolean isVariableWidth(DataType type) {
+        return type.getLength() != null
+                && (type.getCategory() == DataType.Category.CHAR || type.getCategory() == DataType.Category.VARCHAR);
+    }
+
+    /** @return {@code type} declared with another length, keeping its category */
+    private static DataType withLength(DataType type, int length) {
+        return type.getCategory() == DataType.Category.CHAR ? DataType.charType(length)
+                : DataType.varchar(length);
     }
 
     /* ------------------------------------------------------------------ identifier safety */
@@ -507,6 +678,18 @@ public final class SchemaAdapter {
         adapted.setOnUpdate(
                 dialect.getFeatures().supports(DDLFeature.FK_ON_UPDATE) ? adaptAction(foreignKey.getOnUpdate(), dialect)
                         : ReferentialAction.NO_ACTION);
+        if (adapted.isSelfReferential() && refusesSelfReferentialUpdate(adapted.getOnUpdate(), dialect)) {
+            // MySQL refuses ON UPDATE CASCADE and ON UPDATE SET NULL on a foreign key that points at
+            // its own table, by design, and answers error 1451. The action gives way for the same
+            // reason an unsupported feature does: the foreign key is what the ER mapping expresses, and
+            // leaving the combination in the intended schema would make the oracle report the engine
+            // for a statement the engine never claimed to accept. ON DELETE is untouched — the manual
+            // says a self-referential ON DELETE CASCADE and SET NULL are both possible, and they work.
+            notes.add("ON UPDATE of foreign key " + describeForeignKey(foreignKey)
+                    + " changed from " + adapted.getOnUpdate() + " to NO_ACTION: " + dialect.getName()
+                    + " cannot use a self-referential ON UPDATE CASCADE or SET NULL");
+            adapted.setOnUpdate(ReferentialAction.NO_ACTION);
+        }
         if (foreignKey.isDeferrable() && !dialect.getFeatures().supports(DDLFeature.DEFERRABLE_FK)) {
             adapted.setDeferrable(false);
             adapted.setInitiallyDeferred(false);
@@ -516,6 +699,25 @@ public final class SchemaAdapter {
                     foreignKey.isInitiallyDeferred() && dialect.getFeatures().supports(DDLFeature.INITIALLY_DEFERRED));
         }
         return adapted;
+    }
+
+    /**
+     * @return true when the action is one of the two the engine cannot carry out on a foreign key that
+     *         points at its own table
+     */
+    private static boolean refusesSelfReferentialUpdate(ReferentialAction action, Dialect dialect) {
+        if (action != ReferentialAction.CASCADE && action != ReferentialAction.SET_NULL) {
+            // NO_ACTION and RESTRICT ask for nothing to happen, and SET_DEFAULT is not one of the two
+            // the manual names — adaptAction has already turned it into NO_ACTION where it is unsupported
+            return false;
+        }
+        return EngineTraits.refusesSelfReferentialUpdateAction(dialect::includesEngine);
+    }
+
+    /** @return a foreign key as {@code [columns] -> parent[columns]}, for a note */
+    private static String describeForeignKey(ForeignKey foreignKey) {
+        return foreignKey.getColumns() + " -> " + foreignKey.getReferencedTable()
+                + foreignKey.getReferencedColumns();
     }
 
     private static ReferentialAction adaptAction(ReferentialAction action, Dialect dialect) {

@@ -268,6 +268,209 @@ class SchemaAdapterTest {
         assertEquals(before, original.getStatistics().toString(), "the input schema must not be mutated");
     }
 
+    /**
+     * The campaign shape: a join table whose primary key is the foreign keys of its participants, and
+     * whose participants key on {@code TEXT}. Each of the four columns is widened to
+     * {@code VARCHAR(255)} so that it can be a key column at all, and the key then needs
+     * 4 x 255 x 4 = 4080 bytes. InnoDB caps one index key at 3072 bytes and answers error 1071, so the
+     * table was never created — and the rejection was filed as an engine defect.
+     */
+    @Test
+    void textKeyColumnsAreNarrowedUntilTheKeyFits() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(joinTableOverTextKeys(), new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
+        Table join = adapted.getTable("t_join");
+        for (String column : List.of("a_src", "b_src", "a_dst", "b_dst")) {
+            assertEquals(DataType.varchar(192), join.getColumn(column).getType(),
+                    column + " must be narrowed so that four of them fit in 3072 bytes");
+        }
+        assertEquals(3072, keyBytes(join.getPrimaryKey().getColumns(), join),
+                "the key must land exactly on the engine's limit, not near it");
+        assertTrue(notes.stream().anyMatch(note -> note.contains("narrowed") && note.contains("3072")),
+                "the narrowing must be recorded as a note: " + notes);
+    }
+
+    @Test
+    void aKeyThatAlreadyFitsIsLeftAlone() {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table table = new Table("s", "t");
+        for (String column : List.of("a", "b", "c", "d")) {
+            table.addColumn(new Column(column, DataType.varchar(100), false));
+        }
+        table.setPrimaryKey(new PrimaryKey("pk_t", List.of("a", "b", "c", "d")));
+        schema.addTable(table);
+
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(schema, new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
+        assertEquals(DataType.varchar(100), adapted.getTable("t").getColumn("a").getType());
+        assertTrue(notes.isEmpty(), "4 x VARCHAR(100) is 1600 bytes and fits: " + notes);
+    }
+
+    /** A separate {@code CREATE INDEX} is rejected on its own, so it is capped by the same budget. */
+    @Test
+    void separateIndexesAreNarrowedToo() {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table table = new Table("s", "t");
+        List<String> columns = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            table.addColumn(new Column("c" + i, DataType.varchar(100), true));
+            columns.add("c" + i);
+        }
+        table.addColumn(new Column("id", DataType.bigint(), false));
+        table.setPrimaryKey(new PrimaryKey("pk_t", List.of("id")));
+        table.addIndex(new Index("idx_wide", columns));
+        schema.addTable(table);
+
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(schema, new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
+        Table result = adapted.getTable("t");
+        assertTrue(keyBytes(adapted.getTable("t").getIndexes().get(0).getColumns(), result) <= 3072,
+                "12 x VARCHAR(100) is 4800 bytes and must be brought within the limit");
+        assertEquals(DataType.bigint(), result.getColumn("id").getType(),
+                "a fixed-width column is never narrowed");
+    }
+
+    /**
+     * Narrowing a key column changes the type the columns referencing it must be declared with, and
+     * an engine that compares types refuses the foreign key when they drift apart.
+     */
+    @Test
+    void narrowingKeepsReferencingColumnsInStep() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(joinTableOverTextKeys(), new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
+        Table referencing = adapted.getTable("t_ref");
+        assertEquals(adapted.getTable("t_join").getColumn("a_src").getType(),
+                referencing.getColumn("ref_a_src").getType(),
+                "the referencing column must be narrowed with the key column it points at");
+    }
+
+    /**
+     * The campaign shape at full size: the join table's key is four foreign key columns and is narrowed
+     * as a whole, while the single-column key each of them points at is not. Alignment must not widen
+     * them back — and a character length is not something a foreign key compares, so it has no reason
+     * to.
+     */
+    @Test
+    void alignmentDoesNotUndoANarrowedKeyColumn() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(joinTableOverTextKeys(), new org.ddlsmith.dbms.mysql.MySqlDialect(),
+                notes);
+        Table join = adapted.getTable("t_join");
+        for (String column : List.of("a_src", "b_src", "a_dst", "b_dst")) {
+            assertEquals(DataType.varchar(192), join.getColumn(column).getType(),
+                    column + " must stay narrowed after the foreign key alignment runs");
+        }
+        assertTrue(keyBytes(join.getPrimaryKey().getColumns(), join) <= 3072,
+                "the key must still fit once the whole adaptation has settled");
+    }
+
+    /** Adaptation has to reach the same schema however the rules are ordered, so it must converge. */
+    @Test
+    void keyBudgetAndAlignmentSettle() {
+        List<String> first = new ArrayList<>();
+        RelationalSchema once = SchemaAdapter.adapt(joinTableOverTextKeys(),
+                new org.ddlsmith.dbms.mysql.MySqlDialect(), first);
+        List<String> second = new ArrayList<>();
+        RelationalSchema twice = SchemaAdapter.adapt(once, new org.ddlsmith.dbms.mysql.MySqlDialect(), second);
+        assertTrue(second.isEmpty(), "a second pass must find nothing left to do: " + second);
+        assertEquals(once.getStatistics().toString(), twice.getStatistics().toString());
+    }
+
+    @Test
+    void enginesWithoutAKeyByteLimitAreUntouched() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(joinTableOverTextKeys(), TestDialect.permissive(), notes);
+        Table join = adapted.getTable("t_join");
+        assertEquals(DataType.text(), join.getColumn("a_src").getType(),
+                "an engine that indexes TEXT keeps it, and only MySQL and MariaDB cap the key size");
+        assertTrue(notes.isEmpty(), "nothing may be degraded on an engine without the cap: " + notes);
+    }
+
+    /** @return the bytes the engine charges for a key made of these columns */
+    private static int keyBytes(List<String> columns, Table table) {
+        int total = 0;
+        for (String column : columns) {
+            total += org.ddlsmith.ddl.gen.EngineTraits.indexKeyBytes(table.getColumn(column).getType());
+        }
+        return total;
+    }
+
+    /**
+     * A join table over two entities that each key on a pair of {@code TEXT} columns — four TEXT key
+     * columns in one primary key, which is what the campaign generated.
+     */
+    private static RelationalSchema joinTableOverTextKeys() {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table join = new Table("s", "t_join");
+        join.addColumn(new Column("a_src", DataType.text(), false));
+        join.addColumn(new Column("b_src", DataType.text(), false));
+        join.addColumn(new Column("a_dst", DataType.text(), false));
+        join.addColumn(new Column("b_dst", DataType.text(), false));
+        join.setPrimaryKey(new PrimaryKey("pk_t_join", List.of("a_src", "b_src", "a_dst", "b_dst")));
+        schema.addTable(join);
+
+        Table referencing = new Table("s", "t_ref");
+        referencing.addColumn(new Column("id", DataType.bigint(), false));
+        referencing.addColumn(new Column("ref_a_src", DataType.text(), true));
+        referencing.setPrimaryKey(new PrimaryKey("pk_t_ref", List.of("id")));
+        ForeignKey foreignKey = new ForeignKey(List.of("ref_a_src"), "t_join", List.of("a_src"));
+        foreignKey.setName("fk_ref_join");
+        referencing.addForeignKey(foreignKey);
+        schema.addTable(referencing);
+        return schema;
+    }
+
+    /**
+     * The manual states it as a rule: "If {@code ON UPDATE CASCADE} or {@code ON UPDATE SET NULL}
+     * recurses to update the same table it has previously updated during the same cascade, it acts
+     * like RESTRICT. This means that you cannot use self-referential {@code ON UPDATE CASCADE} or
+     * {@code ON UPDATE SET NULL} operations." MySQL answers error 1451, so the action has to give way
+     * exactly as an unsupported feature does — it was the largest source of false findings in the
+     * campaign, at 186 generated databases.
+     */
+    @Test
+    void aSelfReferentialUpdateActionMySQLRefusesIsDropped() {
+        for (ReferentialAction refused : List.of(ReferentialAction.CASCADE, ReferentialAction.SET_NULL)) {
+            List<String> notes = new ArrayList<>();
+            RelationalSchema adapted = SchemaAdapter.adapt(selfReferentialSchema(refused, refused),
+                    new org.ddlsmith.dbms.mysql.MySqlDialect(), notes);
+            ForeignKey key = adapted.getTable("t").getForeignKeys().get(0);
+            assertEquals(ReferentialAction.NO_ACTION, key.getOnUpdate(),
+                    "ON UPDATE " + refused + " is unavailable on a self-referencing key");
+            assertEquals(refused, key.getOnDelete(),
+                    "the manual says a self-referential ON DELETE may cascade, so it must be left alone");
+            assertTrue(notes.stream().anyMatch(note -> note.contains("self-referential ON UPDATE")),
+                    "the change must be recorded as a note: " + notes);
+        }
+    }
+
+    @Test
+    void aSelfReferentialUpdateActionOtherEnginesAcceptIsKept() {
+        List<String> notes = new ArrayList<>();
+        RelationalSchema adapted = SchemaAdapter.adapt(
+                selfReferentialSchema(ReferentialAction.CASCADE, ReferentialAction.CASCADE),
+                TestDialect.permissive(), notes);
+        ForeignKey key = adapted.getTable("t").getForeignKeys().get(0);
+        assertEquals(ReferentialAction.CASCADE, key.getOnUpdate(),
+                "PostgreSQL and SQLite carry a self-referential ON UPDATE CASCADE out");
+        assertTrue(notes.isEmpty(), "nothing may be degraded on an engine without the rule: " + notes);
+    }
+
+    /** A foreign key from a table onto its own key, with the given actions on both sides. */
+    private static RelationalSchema selfReferentialSchema(ReferentialAction onDelete, ReferentialAction onUpdate) {
+        RelationalSchema schema = new RelationalSchema("s");
+        Table table = new Table("s", "t");
+        table.addColumn(new Column("id", DataType.bigint(), false));
+        table.addColumn(new Column("parent_id", DataType.bigint(), true));
+        table.setPrimaryKey(new PrimaryKey("pk_t", List.of("id")));
+        ForeignKey foreignKey = new ForeignKey(List.of("parent_id"), "t", List.of("id"));
+        foreignKey.setName("fk_t_self").setOnDelete(onDelete).setOnUpdate(onUpdate);
+        foreignKey.setSelfReferential(true);
+        table.addForeignKey(foreignKey);
+        schema.addTable(table);
+        return schema;
+    }
+
     /** A schema using every construct whose degradation the adapter handles. */
     static RelationalSchema richSchema() {
         RelationalSchema schema = new RelationalSchema("s");

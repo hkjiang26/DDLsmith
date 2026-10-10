@@ -120,7 +120,26 @@ public class CrashOracle implements TestOracle {
             // is stated explicitly here so that it cannot be lost in a refactoring.
             return false;
         }
+        if (brokeAModeledLimit(context, event)) {
+            // The generator asked for something one of the engine's documented limits forbids, and
+            // EngineTraits is where DDLSmith keeps those limits. Reporting it here accuses the engine of
+            // rejecting a construct it never claimed to accept, at high confidence: on the MySQL
+            // campaign that produced twenty such reports, every one of them for a key DDLSmith had built
+            // itself by widening TEXT key columns to VARCHAR(255) until four of them needed 4080 bytes.
+            // The generator has to respect the limit rather than the engine being told about it — and
+            // when it does not, the consequence is not silent, because the object never appears: the
+            // schema round-trip oracle reports it missing, and the evolution algorithm reports the
+            // create script that did not produce the intended schema.
+            return false;
+        }
         return !isUndeclaredFeatureFailure(context, event);
+    }
+
+    /** @return true when the engine refused the statement by naming one of the limits DDLSmith models */
+    private static boolean brokeAModeledLimit(OracleContext context, ExecutionEvent event) {
+        DatabaseUnderTest database = OracleSupport.database(context, event.getDatabaseName());
+        return database != null && org.ddlsmith.ddl.gen.EngineTraits.isModeledLimitFailure(
+                database.getDialect()::includesEngine, event.getErrorCode());
     }
 
     /**
