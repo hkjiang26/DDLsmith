@@ -35,6 +35,15 @@ param(
     # keep the generated database between runs; on a client/server engine this stops the namespace
     # from being dropped before each database is created, which is what a triage run wants
     [switch]$KeepDatabases,
+    # How many *consecutive* chunks may test nothing before this category gives up. A chunk that
+    # cannot reach its server is not a test, and until 2026-10-08 the loop could not tell the
+    # difference: on 2026-10-07 a Docker/WSL VM took all three containers down at 23:30, and the next
+    # nine rounds (nine hours) were spent respawning JVMs against a dead server at ~1 190 per round,
+    # each recording `databases=0 failures=0`, each journalled as a finished round. The 14.4 GB of
+    # "Communications link failure" that filled the disk and tripped the campaign's own free-space
+    # guard came from that loop. One unreachable chunk can be a restart on the server's side; a run
+    # of them is the server being gone, and no budget should be spent on it.
+    [int]$UnreachableChunkLimit = 3,
     # every round writes under its own root, so a later round can never overwrite an earlier one's
     # summary or evidence
     [string]$OutRoot = 'E:\workspace\DDLSmith\runs'
@@ -63,13 +72,18 @@ if (-not (Test-Path $config)) {
 }
 Set-Location $dir
 $summaryPath = Join-Path $dir 'summary.tsv'
-"chunk`tplan`tseed`texit`tseconds`tkilled`tdatabases`tstatements`tfailures`tkinds`tharness`tunavailable" |
+# `state` is a verdict on the chunk, not a restatement of its numbers: `ok` only when the chunk
+# actually tested something. It is deliberately the last column so that every existing reader of
+# this file (the campaign drivers, census.ps1, the result tables) keeps working unchanged.
+"chunk`tplan`tseed`texit`tseconds`tkilled`tdatabases`tstatements`tfailures`tkinds`tharness`tunavailable`tstate" |
     Set-Content -Path $summaryPath -Encoding UTF8
 
 $deadline = (Get-Date).AddSeconds($DurationSeconds)
 # plan entries are separated by ';' because each entry contains spaces of its own
 $plans = @($Plan | ForEach-Object { $_.Split(';') } | Where-Object { $_.Trim() -ne '' })
 $chunk = 0
+$unreachableStreak = 0
+$aborted = $false
 Write-Output "[$Category] budget $DurationSeconds s, chunk=$ChunkSeconds s, tries/chunk=$ChunkTries, threads=$Threads, plan=$($plans -join ' | ')"
 
 while ((Get-Date) -lt $deadline) {
@@ -132,11 +146,28 @@ while ((Get-Date) -lt $deadline) {
         Group-Object | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ','
     $harness = ($out | Select-String -Pattern 'unexpected failure in thread|HARNESS_CRASH' -AllMatches).Count
     $planName = ($extra | Select-Object -First 1)
-    "$chunk`t$planName`t$seed`t$code`t$([math]::Round($sw.Elapsed.TotalSeconds,1))`t$killed`t$databases`t$statements`t$failures`t$kinds`t$harness`t$unavailable" |
+
+    # The chunk's verdict. `db=0` is the load-bearing signal and not a heuristic: the tool prints its
+    # summary from a finally block, so a chunk that tested nothing always says so, whether it failed
+    # to connect, crashed on startup, or was killed before it began. `--timeout-seconds` interruption
+    # still prints a summary with a non-zero count, so a budget-exhausted chunk is not misread as
+    # unreachable. `unavailable` is checked too because it names the cause when there is one.
+    $state = if ([int]$databases -gt 0) { 'ok' } elseif ([int]$unavailable -gt 0) { 'unreachable' } else { 'no-databases' }
+    if ($state -eq 'ok') {
+        $unreachableStreak = 0
+    }
+    else {
+        $unreachableStreak++
+    }
+
+    "$chunk`t$planName`t$seed`t$code`t$([math]::Round($sw.Elapsed.TotalSeconds,1))`t$killed`t$databases`t$statements`t$failures`t$kinds`t$harness`t$unavailable`t$state" |
         Add-Content -Path $summaryPath -Encoding UTF8
-    Write-Output ("[{0}] chunk {1:d3} plan={2} seed={3} exit={4} {5}s db={6} stmt={7} fail={8} harness={9} {10}" -f
+    Write-Output ("[{0}] chunk {1:d3} plan={2} seed={3} exit={4} {5}s db={6} stmt={7} fail={8} harness={9} {10} state={11}" -f
         $Category, $chunk, $planName, $seed, $code, [math]::Round($sw.Elapsed.TotalSeconds, 1), $databases,
-        $statements, $failures, $harness, $kinds)
+        $statements, $failures, $harness, $kinds, $state)
+    if ($state -ne 'ok') {
+        Write-Output ("[{0}] chunk {1:d3} tested no database ({2}); {3} consecutive" -f $Category, $chunk, $state, $unreachableStreak)
+    }
 
     # keep the failure logs (the evidence) and the bug reports; drop the per-database replay logs and
     # the embedded database files, which are the bulk of the disk usage
@@ -145,10 +176,21 @@ while ((Get-Date) -lt $deadline) {
     Get-ChildItem (Join-Path $dir 'db') -File -ErrorAction SilentlyContinue |
         Remove-Item -Force -ErrorAction SilentlyContinue
     $chunk++
+
+    if ($unreachableStreak -ge $UnreachableChunkLimit) {
+        Write-Output ("[{0}] ABORTING: {1} consecutive chunks tested no database (limit {2}); the engine is not answering, so the rest of the budget would be spent respawning against it" -f
+            $Category, $unreachableStreak, $UnreachableChunkLimit)
+        $aborted = $true
+        break
+    }
 }
 
 $rows = @(Import-Csv -Path $summaryPath -Delimiter "`t")
 $totalDb = ($rows | Measure-Object -Property databases -Sum).Sum
 $totalFail = ($rows | Measure-Object -Property failures -Sum).Sum
 $totalHarness = ($rows | Measure-Object -Property harness -Sum).Sum
-Write-Output "[$Category] DONE chunks=$($rows.Count) databases=$totalDb failures=$totalFail harness=$totalHarness"
+# reported separately from the chunk count, because a reader who sees "chunks=9 databases=0" has to
+# be able to tell at a glance that none of the nine was a test
+$emptyChunks = @($rows | Where-Object { $_.state -and $_.state -ne 'ok' }).Count
+$verdict = if ($aborted) { 'ABORTED' } elseif ($emptyChunks -gt 0) { 'DONE (with empty chunks)' } else { 'DONE' }
+Write-Output "[$Category] $verdict chunks=$($rows.Count) databases=$totalDb failures=$totalFail harness=$totalHarness emptyChunks=$emptyChunks"

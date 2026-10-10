@@ -9,7 +9,17 @@
 #                          by-product, so it is versioned even though runs
 #                          accumulate into it.
 #   config.json            the default connection settings the README documents
-#   runs/*.ps1             the acceptance-campaign harness scripts
+#   runs/*.ps1             the acceptance-campaign harness scripts (Windows)
+#   runs/*.sh              the same harness for Linux; run-category.sh and
+#                          run-category.ps1 are meant to be read side by side
+#   runs/*.py              harness helpers with no shell equivalent (reading the
+#                          resource sampler's output)
+#   runs/*.md              the campaign reports: what a run found and what was
+#                          changed in response. A result, like bugs/, so it is
+#                          versioned even though the tree it describes is not.
+#   runs/*.txt             the replay inputs: the "Reproduce this run" command of
+#                          every failure a campaign filed, one per line. Their
+#                          jars and logs are scratch and stay ignored.
 # ---------------------------------------------------------------------------
 
 # --- Build output ----------------------------------------------------------
@@ -27,6 +37,10 @@ logs/
 # The harness scripts that drive the rounds sit at the top level and are kept.
 runs/*
 !runs/*.ps1
+!runs/*.sh
+!runs/*.py
+!runs/*.md
+!runs/*.txt
 
 # Every generated DDL script (--ddl-dump-dir) and exported ER diagram.
 *-ddl-dump/
