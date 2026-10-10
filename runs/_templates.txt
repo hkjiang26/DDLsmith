@@ -1,0 +1,326 @@
+TOTAL note lines read: 228
+DISTINCT templates (identifiers stripped): 41
+=== FULL TEMPLATE CENSUS (sorted by count desc) ===
+ 1. count=28  rounds={'c2h01': 28}  oracles={'graph-conformance': 28}
+    TEMPLATE: no satisfying row could be generated for table <ID> (entity <E>): the row generator cannot satisfy the table's own constraints for one more row (for instance a unique constraint on a column whose value domain is smaller than the number of nodes the graph has for that entity); its instances are not materialized
+    EXAMPLE : [database28] no satisfying row could be generated for table t_0 (entity E0): the row generator cannot satisfy the table's own constraints for one more row (for instance a unique constraint on a column whose value domain is smaller than the number of nodes the graph has for that entity); its instances are not materialized
+
+ 2. count=20  rounds={'c2h01': 16, 'c2h02': 4}  oracles={'graph-conformance': 20}
+    TEMPLATE: the row node <E>#<K> of <ID> cannot be part of a consistent instance of the schema (the reference [<ID>] points at a row that is not materialized); it is dropped
+    EXAMPLE : [database24] the row node E3#4 of t_3 cannot be part of a consistent instance of the schema (the reference [t_4_id_2] points at a row that is not materialized); it is dropped
+
+ 3. count=19  rounds={'c2h01': 6, 'c2h02': 3, 'c2h03': 10}  oracles={'graph-conformance': 19}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>] REFERENCES <ID>[<ID>] of <ID> is not checked: a row of one of its tables was rejected by the engine
+    EXAMPLE : the foreign key FOREIGN KEY[t_0_id] REFERENCES t_0[id] of t_5 is not checked: a row of one of its tables was rejected by the engine
+
+ 4. count=18  rounds={'c2h01': 18}  oracles={'graph-conformance': 18}
+    TEMPLATE: the row node <E>#<K> of <ID> repeats a key another planned row already uses (two graph elements map to one key); it is dropped
+    EXAMPLE : [database24] the row node E4#6 of t_4 repeats a key another planned row already uses (two graph elements map to one key); it is dropped
+
+ 5. count=16  rounds={'c2h02': 13, 'c2h03': 3}  oracles={'referential-action': 16}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): skipped, the child or the parent table could not be populated
+    EXAMPLE : [database8] fk t_7_r[t_3_a12, t_3_a15] -> t_3[a12, a15] (fk_t_7_r_0): skipped, the child or the parent table could not be populated
+
+ 6. count=12  rounds={'c2h01': 3, 'c2h02': 8, 'c2h03': 1}  oracles={'constraint-enforcement': 1, 'referential-action': 11}
+    TEMPLATE: skipped table <ID>: it references <ID>, which could not be populated
+    EXAMPLE : skipped table t_5: it references t_1, which could not be populated
+
+ 7. count=12  rounds={'c2h01': 8, 'c2h02': 2, 'c2h03': 2}  oracles={'graph-conformance': 12}
+    TEMPLATE: view <VIEW> is unfolded: SELECT * FROM <VIEW> is compared with its own body
+    EXAMPLE : view v_0 is unfolded: SELECT * FROM v_0 is compared with its own body
+
+ 8. count=10  rounds={'c2h01': 10}  oracles={'graph-conformance': 10}
+    TEMPLATE: entity <E> is not an allowed value of the discriminator dtype of <ID> (the specialization is total), so its rows cannot be stored and are not materialized
+    EXAMPLE : [database24] entity E0 is not an allowed value of the discriminator dtype of t_0 (the specialization is total), so its rows cannot be stored and are not materialized
+
+ 9. count=9  rounds={'c2h01': 8, 'c2h03': 1}  oracles={'graph-conformance': 9}
+    TEMPLATE: <N> of <N> node(s) of <E> could not be materialized in <ID> (see the notes above)
+    EXAMPLE : [database24] 8 of 8 node(s) of E0 could not be materialized in t_0 (see the notes above)
+
+10. count=8  rounds={'c2h01': 6, 'c2h02': 2}  oracles={'graph-conformance': 8}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>] REFERENCES <ID>[<ID>] of <ID> is not checked: one of its tables could not be emptied
+    EXAMPLE : the foreign key FOREIGN KEY[e3_dst_id] REFERENCES t_3[id] of t_3 is not checked: one of its tables could not be emptied
+
+11. count=6  rounds={'c2h03': 6}  oracles={'graph-conformance': 6}
+    TEMPLATE: the row node <E>#<K> in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE CASCADE ON UPDATE RESTRICT))
+    EXAMPLE : [database24] the row node E0#6 in t_0 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_0`, CONSTRAINT `fk_t_0_0` FOREIGN KEY (`t_1_id`) REFERENCES `t_1` (`id`) ON DELETE CASCADE ON UPDATE RESTRICT))
+
+12. count=6  rounds={'c2h03': 6}  oracles={'graph-conformance': 6}
+    TEMPLATE: the row node <E>#<K> in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON UPDATE RESTRICT))
+    EXAMPLE : [database24] the row node E1#0 in t_1 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_1`, CONSTRAINT `fk_t_1_0` FOREIGN KEY (`e1_dst_id`) REFERENCES `t_1` (`id`) ON UPDATE RESTRICT))
+
+13. count=5  rounds={'c2h01': 5}  oracles={'constraint-enforcement': 5}
+    TEMPLATE: excluded probe CHECK on <ID>[] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe CHECK on t_1[] (ck_t_1_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+14. count=5  rounds={'c2h01': 3, 'c2h02': 2}  oracles={'referential-action': 5}
+    TEMPLATE: fk <ID>[<ID>] -> <ID>[<ID>] (<CONSTRAINT>): skipped, the child or the parent table could not be populated
+    EXAMPLE : [database17] fk t_4_r[t_2_a10] -> t_2[a10] (fk_t_4_r_0): skipped, the child or the parent table could not be populated
+
+15. count=4  rounds={'c2h01': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: relationship <R> (FK_ON_MANY_SIDE) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+    EXAMPLE : [database24] relationship R2 (FK_ON_MANY_SIDE) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+
+16. count=4  rounds={'c2h01': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>, <ID>] REFERENCES <ID>[<ID>, <ID>] of <ID> is not checked: a row of one of its tables was rejected by the engine
+    EXAMPLE : the foreign key FOREIGN KEY[t_1_a0, t_1_a1] REFERENCES t_1[a0, a1] of t_5 is not checked: a row of one of its tables was rejected by the engine
+
+17. count=4  rounds={'c2h02': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: the row node <E>#<K> in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE RESTRICT))
+    EXAMPLE : [database18] the row node E1#5 in t_1 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cft_database18`.`t_1`, CONSTRAINT `fk_t_1_1` FOREIGN KEY (`e1_dst_id`) REFERENCES `t_1` (`id`) ON DELETE RESTRICT))
+
+18. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> edge(s) of <R> reference a node whose row was not materialized; they are not materialized
+    EXAMPLE : [database11] 3 of 4 edge(s) of R3 reference a node whose row was not materialized; they are not materialized
+
+19. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> instance(s) of <R> could not be materialized in <ID> (JOIN_TABLE)
+    EXAMPLE : [database31] 2 of 2 instance(s) of R3 could not be materialized in t_3_r (JOIN_TABLE)
+
+20. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> instance(s) of <R> could not be materialized in <ID> (JOIN_TABLE_WITH_SURROGATE_KEY)
+    EXAMPLE : [database24] 2 of 2 instance(s) of R3 could not be materialized in t_3_r (JOIN_TABLE_WITH_SURROGATE_KEY)
+
+21. count=3  rounds={'c2h01': 3}  oracles={'constraint-enforcement': 3}
+    TEMPLATE: excluded probe NOT_NULL on <ID>[<ID>]: the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe NOT_NULL on t_1[a4]: the table could not be populated, so a violating row cannot be attributed to this constraint
+
+22. count=3  rounds={'c2h01': 2, 'c2h02': 1}  oracles={'graph-conformance': 3}
+    TEMPLATE: relationship <R> (RECURSIVE_ONE_TO_MANY) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+    EXAMPLE : [database24] relationship R1 (RECURSIVE_ONE_TO_MANY) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+
+23. count=3  rounds={'c2h03': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: the row edge <R> [<N>, <N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE RESTRICT ON UPDATE CASCADE))
+    EXAMPLE : [database24] the row edge Rtern_0_1_2 [15, 27, 11] in t_rtern_0_1_2 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_rtern_0_1_2`, CONSTRAINT `fk_t_rtern_0_1_2_0` FOREIGN KEY (`t_0_id`) REFERENCES `t_0` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE))
+
+24. count=2  rounds={'c2h02': 2}  oracles={'graph-conformance': 2}
+    TEMPLATE: <CARD> relationship <R> merged <E> into <E> but its participation is not total on both sides; the merged columns are left to the row generator
+    EXAMPLE : [database18] 1:1 relationship R0 merged E2 into E6 but its participation is not total on both sides; the merged columns are left to the row generator
+
+25. count=2  rounds={'c2h02': 1, 'c2h03': 1}  oracles={'graph-conformance': 2}
+    TEMPLATE: <N> row(s) of <ID> reference each other through a self-referencing foreign key, so no insertion order satisfies it; they are inserted last and a rejection caused by that reference is reported as a limitation of this oracle
+    EXAMPLE : [database18] 4 row(s) of t_1 reference each other through a self-referencing foreign key, so no insertion order satisfies it; they are inserted last and a rejection caused by that reference is reported as a limitation of this oracle
+
+26. count=2  rounds={'c2h02': 2}  oracles={'graph-conformance': 2}
+    TEMPLATE: entity <E> was merged into <ID>; its columns are filled on the rows of the surviving entity
+    EXAMPLE : [database18] entity E2 was merged into t_6; its columns are filled on the rows of the surviving entity
+
+27. count=2  rounds={'c2h01': 2}  oracles={'constraint-enforcement': 2}
+    TEMPLATE: excluded probe FOREIGN_KEY on <ID>[<ID>] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe FOREIGN_KEY on t_5[t_0_id] (fk_t_5_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+28. count=2  rounds={'c2h01': 2}  oracles={'constraint-enforcement': 2}
+    TEMPLATE: excluded probe PRIMARY_KEY on <ID>[<ID>] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe PRIMARY_KEY on t_1[id] (pk_t_1_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+29. count=2  rounds={'c2h01': 2}  oracles={'graph-conformance': 2}
+    TEMPLATE: the row edge <R> [<N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <ID> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE CASCADE))
+    EXAMPLE : [database11] the row edge R0 [28, 11] in t_0_r references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_ald_database11`.`t_0_r`, CONSTRAINT `t_0_r_ibfk_1` FOREIGN KEY (`e2_src_a0`) REFERENCES `t_2` (`a0`) ON DELETE CASCADE))
+
+30. count=1  rounds={'c2h03': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): delete probe skipped for declared SET_NULL, another table (<ID>.<CONSTRAINT>) references the child rows or the parent key with a restrictive action, so a rejection of the delete would be legitimate
+    EXAMPLE : [database13] fk t_0[t_1_a7, t_1_a8] -> t_1[a7, a8] (fk_t_0_0): delete probe skipped for declared SET_NULL, another table (t_2.fk_t_2_0) references the child rows or the parent key with a restrictive action, so a rejection of the delete would be legitimate
+
+31. count=1  rounds={'c2h03': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): delete probe skipped, the only row referencing the parent row is the parent row itself (<ID>.[<ID>, <ID>] references its own key), so deleting it is legal
+    EXAMPLE : [database13] fk t_4[e4_dst_a8, e4_dst_a13] -> t_4[a8, a13] (fk_t_4_0): delete probe skipped, the only row referencing the parent row is the parent row itself (t_4.[e4_dst_a8, e4_dst_a13] references its own key), so deleting it is legal
+
+32. count=1  rounds={'c2h01': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>] -> <ID>[<ID>] (<CONSTRAINT>): update probe skipped for declared CASCADE, another table (<ID>.<CONSTRAINT>) references the parent key with a restrictive action, so a rejection of the update would be legitimate
+    EXAMPLE : [database17] fk t_2_r[t_2_a10] -> t_2[a10] (fk_t_2_r_1): update probe skipped for declared CASCADE, another table (t_4_r.fk_t_4_r_0) references the parent key with a restrictive action, so a rejection of the update would be legitimate
+
+33. count=1  rounds={'c2h01': 1}  oracles={'constraint-enforcement': 1}
+    TEMPLATE: only <N> of <N> probeable constraints were probed (the cap is <N> per database)
+    EXAMPLE : [database12] only 25 of 33 probeable constraints were probed (the cap is 25 per database)
+
+34. count=1  rounds={'c2h02': 1}  oracles={'referential-action': 1}
+    TEMPLATE: skipped table <ID>: no satisfying row could be generated (for instance a mandatory foreign key has no parent row yet)
+    EXAMPLE : skipped table t_8: no satisfying row could be generated (for instance a mandatory foreign key has no parent row yet)
+
+35. count=1  rounds={'c2h01': 1}  oracles={'constraint-enforcement': 1}
+    TEMPLATE: skipped table <ID>: the INSERT carrying an explicit value for an IDENTITY column was rejected (Duplicate entry '<N>' for key '<ID>.PRIMARY'); the rejection is attributed to the INSERT rendering, not to the engine
+    EXAMPLE : skipped table t_1: the INSERT carrying an explicit value for an IDENTITY column was rejected (Duplicate entry '1' for key 't_1.PRIMARY'); the rejection is attributed to the INSERT rendering, not to the engine
+
+36. count=1  rounds={'c2h03': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the row edge <R> [<N>, <N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE CASCADE ON UPDATE CASCADE))
+    EXAMPLE : [database24] the row edge Rtern_0_1_3 [20, 0, 4] in t_rtern_0_1_3 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_rtern_0_1_3`, CONSTRAINT `fk_t_rtern_0_1_3_0` FOREIGN KEY (`t_0_id`) REFERENCES `t_0` (`id`) ON DELETE CASCADE ON UPDATE CASCADE))
+
+37. count=1  rounds={'c2h03': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the row edge <R> [<N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON DELETE CASCADE ON UPDATE CASCADE))
+    EXAMPLE : [database24] the row edge R7 [24, 19] in t_7 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_7`, CONSTRAINT `fk_t_7_0` FOREIGN KEY (`t_1_id`) REFERENCES `t_1` (`id`) ON DELETE CASCADE ON UPDATE CASCADE))
+
+38. count=1  rounds={'c2h01': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the row edge <R> [<N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <ID> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>)))
+    EXAMPLE : [database24] the row edge R5 [16, 15] in t_5 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfh_database24`.`t_5`, CONSTRAINT `t_5_ibfk_2` FOREIGN KEY (`t_2_id`) REFERENCES `t_2` (`id`)))
+
+39. count=1  rounds={'c2h01': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the row edge <R> [<N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <ID> FOREIGN KEY (<ID>, <ID>) REFERENCES <ID> (<ID>, <ID>) ON DELETE CASCADE ON UPDATE RESTRICT))
+    EXAMPLE : [database31] the row edge R5 [22, 11] in t_5 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfh_database31`.`t_5`, CONSTRAINT `t_5_ibfk_2` FOREIGN KEY (`t_2_a4`, `t_2_a6`) REFERENCES `t_2` (`a4`, `a6`) ON DELETE CASCADE ON UPDATE RESTRICT))
+
+40. count=1  rounds={'c2h03': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the rows materialized in <ID> could not be removed afterwards (Cannot delete or update a parent row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>) REFERENCES <ID> (<ID>) ON UPDATE RESTRICT))
+    EXAMPLE : the rows materialized in t_1 could not be removed afterwards (Cannot delete or update a parent row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_1`, CONSTRAINT `fk_t_1_0` FOREIGN KEY (`e1_dst_id`) REFERENCES `t_1` (`id`) ON UPDATE RESTRICT))
+
+41. count=1  rounds={'c2h01': 1}  oracles={'graph-conformance': 1}
+    TEMPLATE: the rows materialized in <ID> could not be removed afterwards (Cannot delete or update a parent row: a foreign key constraint fails (<SCHEMA>.<ID>, CONSTRAINT <CONSTRAINT> FOREIGN KEY (<ID>, <ID>) REFERENCES <ID> (<ID>, <ID>) ON DELETE RESTRICT))
+    EXAMPLE : the rows materialized in t_3 could not be removed afterwards (Cannot delete or update a parent row: a foreign key constraint fails (`ddlsmith_cfh_database28`.`t_3`, CONSTRAINT `fk_t_3_0` FOREIGN KEY (`e3_dst_a1`, `e3_dst_a11`) REFERENCES `t_3` (`a1`, `a11`) ON DELETE RESTRICT))
+
+
+=== COARSE GROUPS (engine error text normalised to <ENGINE-ERROR>) === (34 groups)
+ 1. count=28  rounds={'c2h01': 28}  oracles={'graph-conformance': 28}
+    TEMPLATE: no satisfying row could be generated for table <ID> (entity <E>): the row generator cannot satisfy the table's own constraints for one more row (for instance a unique constraint on a column whose value domain is smaller than the number of nodes the graph has for that entity); its instances are not materialized
+    EXAMPLE : [database28] no satisfying row could be generated for table t_0 (entity E0): the row generator cannot satisfy the table's own constraints for one more row (for instance a unique constraint on a column whose value domain is smaller than the number of nodes the graph has for that entity); its instances are not materialized
+
+ 2. count=20  rounds={'c2h01': 16, 'c2h02': 4}  oracles={'graph-conformance': 20}
+    TEMPLATE: the row node <E>#<K> of <ID> cannot be part of a consistent instance of the schema (the reference [<ID>] points at a row that is not materialized); it is dropped
+    EXAMPLE : [database24] the row node E3#4 of t_3 cannot be part of a consistent instance of the schema (the reference [t_4_id_2] points at a row that is not materialized); it is dropped
+
+ 3. count=19  rounds={'c2h01': 6, 'c2h02': 3, 'c2h03': 10}  oracles={'graph-conformance': 19}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>] REFERENCES <ID>[<ID>] of <ID> is not checked: a row of one of its tables was rejected by the engine
+    EXAMPLE : the foreign key FOREIGN KEY[t_0_id] REFERENCES t_0[id] of t_5 is not checked: a row of one of its tables was rejected by the engine
+
+ 4. count=18  rounds={'c2h01': 18}  oracles={'graph-conformance': 18}
+    TEMPLATE: the row node <E>#<K> of <ID> repeats a key another planned row already uses (two graph elements map to one key); it is dropped
+    EXAMPLE : [database24] the row node E4#6 of t_4 repeats a key another planned row already uses (two graph elements map to one key); it is dropped
+
+ 5. count=16  rounds={'c2h02': 13, 'c2h03': 3}  oracles={'referential-action': 16}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): skipped, the child or the parent table could not be populated
+    EXAMPLE : [database8] fk t_7_r[t_3_a12, t_3_a15] -> t_3[a12, a15] (fk_t_7_r_0): skipped, the child or the parent table could not be populated
+
+ 6. count=16  rounds={'c2h02': 4, 'c2h03': 12}  oracles={'graph-conformance': 16}
+    TEMPLATE: the row node <E>#<K> in <ID> references a row that is not stored, so the engine correctly rejected it (<ENGINE-ERROR>)
+    EXAMPLE : [database18] the row node E1#5 in t_1 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cft_database18`.`t_1`, CONSTRAINT `fk_t_1_1` FOREIGN KEY (`e1_dst_id`) REFERENCES `t_1` (`id`) ON DELETE RESTRICT))
+
+ 7. count=12  rounds={'c2h01': 3, 'c2h02': 8, 'c2h03': 1}  oracles={'constraint-enforcement': 1, 'referential-action': 11}
+    TEMPLATE: skipped table <ID>: it references <ID>, which could not be populated
+    EXAMPLE : skipped table t_5: it references t_1, which could not be populated
+
+ 8. count=12  rounds={'c2h01': 8, 'c2h02': 2, 'c2h03': 2}  oracles={'graph-conformance': 12}
+    TEMPLATE: view <VIEW> is unfolded: SELECT * FROM <VIEW> is compared with its own body
+    EXAMPLE : view v_0 is unfolded: SELECT * FROM v_0 is compared with its own body
+
+ 9. count=10  rounds={'c2h01': 10}  oracles={'graph-conformance': 10}
+    TEMPLATE: entity <E> is not an allowed value of the discriminator dtype of <ID> (the specialization is total), so its rows cannot be stored and are not materialized
+    EXAMPLE : [database24] entity E0 is not an allowed value of the discriminator dtype of t_0 (the specialization is total), so its rows cannot be stored and are not materialized
+
+10. count=9  rounds={'c2h01': 8, 'c2h03': 1}  oracles={'graph-conformance': 9}
+    TEMPLATE: <N> of <N> node(s) of <E> could not be materialized in <ID> (see the notes above)
+    EXAMPLE : [database24] 8 of 8 node(s) of E0 could not be materialized in t_0 (see the notes above)
+
+11. count=8  rounds={'c2h01': 6, 'c2h02': 2}  oracles={'graph-conformance': 8}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>] REFERENCES <ID>[<ID>] of <ID> is not checked: one of its tables could not be emptied
+    EXAMPLE : the foreign key FOREIGN KEY[e3_dst_id] REFERENCES t_3[id] of t_3 is not checked: one of its tables could not be emptied
+
+12. count=5  rounds={'c2h01': 5}  oracles={'constraint-enforcement': 5}
+    TEMPLATE: excluded probe CHECK on <ID>[] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe CHECK on t_1[] (ck_t_1_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+13. count=5  rounds={'c2h01': 3, 'c2h02': 2}  oracles={'referential-action': 5}
+    TEMPLATE: fk <ID>[<ID>] -> <ID>[<ID>] (<CONSTRAINT>): skipped, the child or the parent table could not be populated
+    EXAMPLE : [database17] fk t_4_r[t_2_a10] -> t_2[a10] (fk_t_4_r_0): skipped, the child or the parent table could not be populated
+
+14. count=5  rounds={'c2h01': 4, 'c2h03': 1}  oracles={'graph-conformance': 5}
+    TEMPLATE: the row edge <R> [<N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (<ENGINE-ERROR>)
+    EXAMPLE : [database24] the row edge R5 [16, 15] in t_5 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfh_database24`.`t_5`, CONSTRAINT `t_5_ibfk_2` FOREIGN KEY (`t_2_id`) REFERENCES `t_2` (`id`)))
+
+15. count=4  rounds={'c2h01': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: relationship <R> (FK_ON_MANY_SIDE) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+    EXAMPLE : [database24] relationship R2 (FK_ON_MANY_SIDE) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+
+16. count=4  rounds={'c2h01': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: the foreign key FOREIGN KEY[<ID>, <ID>] REFERENCES <ID>[<ID>, <ID>] of <ID> is not checked: a row of one of its tables was rejected by the engine
+    EXAMPLE : the foreign key FOREIGN KEY[t_1_a0, t_1_a1] REFERENCES t_1[a0, a1] of t_5 is not checked: a row of one of its tables was rejected by the engine
+
+17. count=4  rounds={'c2h03': 4}  oracles={'graph-conformance': 4}
+    TEMPLATE: the row edge <R> [<N>, <N>, <N>] in <ID> references a row that is not stored, so the engine correctly rejected it (<ENGINE-ERROR>)
+    EXAMPLE : [database24] the row edge Rtern_0_1_2 [15, 27, 11] in t_rtern_0_1_2 references a row that is not stored, so the engine correctly rejected it (Cannot add or update a child row: a foreign key constraint fails (`ddlsmith_cfr_database24`.`t_rtern_0_1_2`, CONSTRAINT `fk_t_rtern_0_1_2_0` FOREIGN KEY (`t_0_id`) REFERENCES `t_0` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE))
+
+18. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> edge(s) of <R> reference a node whose row was not materialized; they are not materialized
+    EXAMPLE : [database11] 3 of 4 edge(s) of R3 reference a node whose row was not materialized; they are not materialized
+
+19. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> instance(s) of <R> could not be materialized in <ID> (JOIN_TABLE)
+    EXAMPLE : [database31] 2 of 2 instance(s) of R3 could not be materialized in t_3_r (JOIN_TABLE)
+
+20. count=3  rounds={'c2h01': 3}  oracles={'graph-conformance': 3}
+    TEMPLATE: <N> of <N> instance(s) of <R> could not be materialized in <ID> (JOIN_TABLE_WITH_SURROGATE_KEY)
+    EXAMPLE : [database24] 2 of 2 instance(s) of R3 could not be materialized in t_3_r (JOIN_TABLE_WITH_SURROGATE_KEY)
+
+21. count=3  rounds={'c2h01': 3}  oracles={'constraint-enforcement': 3}
+    TEMPLATE: excluded probe NOT_NULL on <ID>[<ID>]: the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe NOT_NULL on t_1[a4]: the table could not be populated, so a violating row cannot be attributed to this constraint
+
+22. count=3  rounds={'c2h01': 2, 'c2h02': 1}  oracles={'graph-conformance': 3}
+    TEMPLATE: relationship <R> (RECURSIVE_ONE_TO_MANY) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+    EXAMPLE : [database24] relationship R1 (RECURSIVE_ONE_TO_MANY) has no materialized instance: no row carries its reference, because the rows its edges connect were dropped
+
+23. count=2  rounds={'c2h02': 2}  oracles={'graph-conformance': 2}
+    TEMPLATE: <CARD> relationship <R> merged <E> into <E> but its participation is not total on both sides; the merged columns are left to the row generator
+    EXAMPLE : [database18] 1:1 relationship R0 merged E2 into E6 but its participation is not total on both sides; the merged columns are left to the row generator
+
+24. count=2  rounds={'c2h02': 1, 'c2h03': 1}  oracles={'graph-conformance': 2}
+    TEMPLATE: <N> row(s) of <ID> reference each other through a self-referencing foreign key, so no insertion order satisfies it; they are inserted last and a rejection caused by that reference is reported as a limitation of this oracle
+    EXAMPLE : [database18] 4 row(s) of t_1 reference each other through a self-referencing foreign key, so no insertion order satisfies it; they are inserted last and a rejection caused by that reference is reported as a limitation of this oracle
+
+25. count=2  rounds={'c2h02': 2}  oracles={'graph-conformance': 2}
+    TEMPLATE: entity <E> was merged into <ID>; its columns are filled on the rows of the surviving entity
+    EXAMPLE : [database18] entity E2 was merged into t_6; its columns are filled on the rows of the surviving entity
+
+26. count=2  rounds={'c2h01': 2}  oracles={'constraint-enforcement': 2}
+    TEMPLATE: excluded probe FOREIGN_KEY on <ID>[<ID>] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe FOREIGN_KEY on t_5[t_0_id] (fk_t_5_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+27. count=2  rounds={'c2h01': 2}  oracles={'constraint-enforcement': 2}
+    TEMPLATE: excluded probe PRIMARY_KEY on <ID>[<ID>] (<CONSTRAINT>): the table could not be populated, so a violating row cannot be attributed to this constraint
+    EXAMPLE : [database12] excluded probe PRIMARY_KEY on t_1[id] (pk_t_1_0): the table could not be populated, so a violating row cannot be attributed to this constraint
+
+28. count=2  rounds={'c2h01': 1, 'c2h03': 1}  oracles={'graph-conformance': 2}
+    TEMPLATE: the rows materialized in <ID> could not be removed afterwards (<ENGINE-ERROR>)
+    EXAMPLE : the rows materialized in t_3 could not be removed afterwards (Cannot delete or update a parent row: a foreign key constraint fails (`ddlsmith_cfh_database28`.`t_3`, CONSTRAINT `fk_t_3_0` FOREIGN KEY (`e3_dst_a1`, `e3_dst_a11`) REFERENCES `t_3` (`a1`, `a11`) ON DELETE RESTRICT))
+
+29. count=1  rounds={'c2h03': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): delete probe skipped for declared SET_NULL, another table (<ID>.<CONSTRAINT>) references the child rows or the parent key with a restrictive action, so a rejection of the delete would be legitimate
+    EXAMPLE : [database13] fk t_0[t_1_a7, t_1_a8] -> t_1[a7, a8] (fk_t_0_0): delete probe skipped for declared SET_NULL, another table (t_2.fk_t_2_0) references the child rows or the parent key with a restrictive action, so a rejection of the delete would be legitimate
+
+30. count=1  rounds={'c2h03': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>, <ID>] -> <ID>[<ID>, <ID>] (<CONSTRAINT>): delete probe skipped, the only row referencing the parent row is the parent row itself (<ID>.[<ID>, <ID>] references its own key), so deleting it is legal
+    EXAMPLE : [database13] fk t_4[e4_dst_a8, e4_dst_a13] -> t_4[a8, a13] (fk_t_4_0): delete probe skipped, the only row referencing the parent row is the parent row itself (t_4.[e4_dst_a8, e4_dst_a13] references its own key), so deleting it is legal
+
+31. count=1  rounds={'c2h01': 1}  oracles={'referential-action': 1}
+    TEMPLATE: fk <ID>[<ID>] -> <ID>[<ID>] (<CONSTRAINT>): update probe skipped for declared CASCADE, another table (<ID>.<CONSTRAINT>) references the parent key with a restrictive action, so a rejection of the update would be legitimate
+    EXAMPLE : [database17] fk t_2_r[t_2_a10] -> t_2[a10] (fk_t_2_r_1): update probe skipped for declared CASCADE, another table (t_4_r.fk_t_4_r_0) references the parent key with a restrictive action, so a rejection of the update would be legitimate
+
+32. count=1  rounds={'c2h01': 1}  oracles={'constraint-enforcement': 1}
+    TEMPLATE: only <N> of <N> probeable constraints were probed (the cap is <N> per database)
+    EXAMPLE : [database12] only 25 of 33 probeable constraints were probed (the cap is 25 per database)
+
+33. count=1  rounds={'c2h02': 1}  oracles={'referential-action': 1}
+    TEMPLATE: skipped table <ID>: no satisfying row could be generated (for instance a mandatory foreign key has no parent row yet)
+    EXAMPLE : skipped table t_8: no satisfying row could be generated (for instance a mandatory foreign key has no parent row yet)
+
+34. count=1  rounds={'c2h01': 1}  oracles={'constraint-enforcement': 1}
+    TEMPLATE: skipped table <ID>: the INSERT carrying an explicit value for an IDENTITY column was rejected (Duplicate entry '<N>' for key '<ID>.PRIMARY'); the rejection is attributed to the INSERT rendering, not to the engine
+    EXAMPLE : skipped table t_1: the INSERT carrying an explicit value for an IDENTITY column was rejected (Duplicate entry '1' for key 't_1.PRIMARY'); the rejection is attributed to the INSERT rendering, not to the engine
+
+=== notes per round ===
+  ./c2h01/all-deep/logs/mysql/database11-failure-001-constraint_too_strict.log	17
+  ./c2h01/all-deep/logs/mysql/database12-failure-001-constraint_not_enforced.log	15
+  ./c2h01/all-preferential/logs/mysql/database11-failure-001-constraint_too_strict.log	12
+  ./c2h01/all-preferential/logs/mysql/database17-failure-001-constraint_not_enforced.log	6
+  ./c2h01/conf-hybrid/logs/mysql/database24-failure-001-constraint_too_strict.log	37
+  ./c2h01/conf-hybrid/logs/mysql/database28-failure-001-constraint_too_strict.log	23
+  ./c2h01/conf-hybrid/logs/mysql/database31-failure-001-constraint_too_strict.log	35
+  ./c2h02/all-deep/logs/mysql/database8-failure-001-constraint_not_enforced.log	14
+  ./c2h02/all-preferential/logs/mysql/database5-failure-001-constraint_not_enforced.log	10
+  ./c2h02/conf-tree/logs/mysql/database18-failure-001-constraint_too_strict.log	13
+  ./c2h02/conf-tree/logs/mysql/database20-failure-001-constraint_too_strict.log	8
+  ./c2h03/all-preferential/logs/mysql/database13-failure-001-constraint_not_enforced.log	6
+  ./c2h03/conf-random/logs/mysql/database24-failure-001-constraint_too_strict.log	32
+=== notes per oracle ===
+  constraint-enforcement	15
+  graph-conformance	177
+  referential-action	36
+=== note-section header texts ===
+  constraint/referential	51
+  graph-conformance	177

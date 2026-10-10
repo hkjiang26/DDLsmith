@@ -10,6 +10,16 @@ MYSQL 26.7.0: A FOREIGN KEY STOPS BEING ENFORCED ONCE AN INDEX WITH A NULLABLE C
   First seen    2026-10-06, the 60-minute round runs/mysql-campaign/mysql7
   Signature     mysql\|CONSTRAINT_NOT_ENFORCED\|constraint-enforcement\|declared FOREIGN_KEY constraint is not enforced
 
+  (2026-10-10) One correction, measured on the same 26.7.0 server and kept here because it changes the
+  trigger. The UNIQUE row of the table below does NOT reproduce: a UNIQUE index is skipped exactly like
+  a non-unique one, so uniqueness is not a mitigation and "a nullable non-unique index" is narrower than
+  the defect. The NULL also need not be in the second column (the table's own last three rows already
+  show that), and an UPDATE is affected as well as an INSERT. The corrected trigger, its bare-SQL
+  matrix on this server and on 26.7.0 with innodb_native_foreign_keys=ON, 8.4.11 LTS and 8.0.46, and
+  the reproducer are in bugs/mysql/005. The table row below is marked with the correction. Both reports
+  describe one defect: 005 is what to file if this one was never submitted, and a follow-up comment on
+  this one if it was.
+
 WHY THIS IS A BUG
 =================
 
@@ -49,9 +59,10 @@ a plain column that merely happens to sit in the index — NULL. The check is sk
 THE RULE
 ========
 
-A non-unique index whose leading column is a foreign key column becomes the index InnoDB enforces
-that foreign key with; from then on, a NULL in any column of that index satisfies the constraint, not
-just a NULL in the foreign key's own columns.
+An index whose leading column is a foreign key column becomes the index InnoDB enforces that foreign
+key with; from then on, a NULL in any column of that index satisfies the constraint, not just a NULL in
+the foreign key's own columns. Whether that index is unique makes no difference (corrected
+2026-10-10: this paragraph said "a non-unique index", which is narrower than the defect).
 
 Measured on the live server, one variable at a time (parent p.k = 1, every insert carries the dangling
 f1 = 999):
@@ -62,14 +73,18 @@ f1 = 999):
   (f1, other)                          (1, 999, 7)             rejected 1452  rejected 1452
   (f1, other)                          (1, 999, NULL)          ACCEPTED       rejected 1452
   (other, f1)                          (1, 999, NULL)          rejected 1452  rejected 1452
-  UNIQUE (f1, other)                   (1, 999, NULL)          rejected 1452  rejected 1452
+  UNIQUE (f1, other)                   (1, 999, NULL)          ACCEPTED [1]   rejected 1452
   (f1, b, d) — NULL in the 2nd column  (1, 999, NULL, 7)       ACCEPTED       —
   (f1, b, d) — NULL in the 3rd column  (2, 999, 7, NULL)       ACCEPTED       —
   (f1, b, d) — nothing NULL            (3, 999, 7, 7)          rejected 1452  —
 
-The NULL does not have to be in the second column: it reaches every column of the index key. A UNIQUE
-index does not trigger it, and neither does an index whose leading column is not the foreign key column
-— consistent with InnoDB only re-binding the foreign key to an index it can actually use.
+The NULL does not have to be in the second column: it reaches every column of the index key. An index
+whose leading column is not the foreign key column does not trigger it — consistent with InnoDB only
+re-binding the foreign key to an index it can actually use.
+
+  [1] Corrected 2026-10-10: this cell read "rejected 1452" when the report was written, and it does not
+  reproduce. Measured again on 26.7.0 with the same statement, a UNIQUE index is skipped exactly like a
+  non-unique one, so UNIQUE is not a mitigation. Full matrix and reproducer: bugs/mysql/005.
 
 The control that shows what the engine is confusing it with
 
@@ -95,7 +110,7 @@ enforces the constraint in every case above — including the exact schema DDLSm
 DDLSmith's schema, 10-column index      -> rejected 1452 (enforced)
 
                                                      8.0.28               26.7.0
-  the full control matrix                            enforced everywhere  broken by a nullable non-unique index over the foreign key column
+  the full control matrix                            enforced everywhere  broken by a nullable index over the foreign key column (unique or not, per the 2026-10-10 correction)
   the 10-column idx_t_1_1 from the generated schema  enforced             not enforced
 
 The same conclusion comes out of DDLSmith's own self-check, which now carries the probe on both sides
