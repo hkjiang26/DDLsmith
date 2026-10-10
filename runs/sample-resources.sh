@@ -48,6 +48,16 @@ fi
 MYSQL_CONTAINER="${MYSQL_CONTAINER:-ddlsmith-mysql}"
 NATIVE_CONTAINER="${NATIVE_CONTAINER:-ddlsmith-mysql-native}"
 NAMESPACE_PATTERN="${NAMESPACE_PATTERN:-^ddlsmith_}"
+# Containers whose memory is added to the docker_mem_mb column. Configurable because which engines are
+# running is a property of the experiment, not of the sampler, and because a name repeated in this
+# list must not be counted twice: the 2h and 12h drivers point NATIVE_CONTAINER at their own single
+# MySQL container, and a naive loop then reported that container's memory as two containers' worth.
+EXTRA_DOCKER_CONTAINERS="${EXTRA_DOCKER_CONTAINERS:-ddlsmith-postgres}"
+# The volume holding the engine's data, for the mysql_data_mb column. Defaulted to the 72h campaign's
+# so that a caller which names nothing keeps reading what it always read; every later experiment names
+# its own. MYSQL_DATA_DIR overrides the whole path for a datadir that is not a docker volume.
+MYSQL_DATA_VOLUME="${MYSQL_DATA_VOLUME:-ddlsmith-mysql-data}"
+MYSQL_DATA_DIR="${MYSQL_DATA_DIR:-/var/lib/docker/100000.100000/volumes/$MYSQL_DATA_VOLUME/_data}"
 # The slice the campaign runs inside. Its own cgroup files are the only place the enforced envelope
 # can be read: memory.peak is the high-water mark the kernel actually saw, which is the number that
 # answers "did the tool stay inside 16 GB" rather than the sum of the heap sizes someone asked for.
@@ -84,7 +94,11 @@ while :; do
     DISK_FREE=$(awk -v m="${DISK_FREE:-0}" 'BEGIN{printf "%.2f", m/1024}')
 
     DOCKER_MEM=0
-    for c in "$MYSQL_CONTAINER" "$NATIVE_CONTAINER" ddlsmith-postgres; do
+    SEEN_CONTAINERS=' '
+    for c in "$MYSQL_CONTAINER" "$NATIVE_CONTAINER" $EXTRA_DOCKER_CONTAINERS; do
+        [ -n "$c" ] || continue
+        case "$SEEN_CONTAINERS" in *" $c "*) continue ;; esac
+        SEEN_CONTAINERS="$SEEN_CONTAINERS$c "
         v=$(SUDO docker inspect -f '{{if .State.Running}}{{.State.Pid}}{{end}}' "$c" 2>/dev/null)
         [ -z "$v" ] && continue
         # the container's own cgroup memory.current is the cheap, accurate figure; docker stats
@@ -110,7 +124,7 @@ while :; do
 
     MYSQL_DATA=''
     if [ $(( I % HEAVY_EVERY )) -eq 0 ]; then
-        MYSQL_DATA=$(SUDO du -sm /var/lib/docker/100000.100000/volumes/ddlsmith-mysql-data/_data 2>/dev/null | awk '{print $1}')
+        MYSQL_DATA=$(SUDO du -sm "$MYSQL_DATA_DIR" 2>/dev/null | awk '{print $1}')
         MYSQL_DATA="${MYSQL_DATA:-}"
     fi
 
