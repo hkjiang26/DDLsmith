@@ -357,17 +357,24 @@ public class ReferentialActionOracle implements TestOracle {
             if (action == ReferentialAction.SET_NULL) {
                 explanation = "the foreign key columns of " + child.getName() + " are NOT NULL, so setting "
                         + "them to NULL cannot be a legal outcome";
-            } else if (action == ReferentialAction.NO_ACTION
+            } else if (restrictiveCheckIsDeferred(database, action)
                     && noLongerReferenced(context, database, child, foreignKey, parentRow)) {
-                // NO ACTION and RESTRICT are not the same promise. RESTRICT is checked as soon as the
-                // parent row is touched; NO ACTION is checked once the statement has finished, so a
-                // second foreign key of the same child row may legitimately have removed the row in
+                // NO ACTION and RESTRICT are not the same promise in standard SQL. RESTRICT is checked as
+                // soon as the parent row is touched; NO ACTION is checked once the statement has finished,
+                // so a second foreign key of the same child row may legitimately have removed the row in
                 // between. One generated row carried the parent key in two columns - one foreign key
                 // CASCADE, one NO ACTION - and the CASCADE deleted it, which leaves nothing for
                 // NO ACTION to complain about. Reporting that as "the delete was accepted" was a
                 // finding about the generated schema rather than about the engine.
-                notes.add(prefix + "delete probe skipped for declared NO ACTION, the referencing child rows "
-                        + "are gone once the statement completes (another foreign key of the same row "
+                //
+                // On InnoDB the split does not exist: the manual says specifying RESTRICT "is the same as
+                // omitting the ON DELETE or ON UPDATE clause" and that NO ACTION "is equivalent to
+                // RESTRICT", which is why the engine checks both at the end of the statement. The same
+                // reasoning therefore excuses a RESTRICT there, and the campaign produced thirteen
+                // databases that were reported as not enforcing RESTRICT when a sibling CASCADE had
+                // simply removed the referencing row first.
+                notes.add(prefix + "delete probe skipped for declared " + action + ", the referencing child "
+                        + "rows are gone once the statement completes (another foreign key of the same row "
                         + "cascades), so the delete is legal");
                 return findings;
             } else {
@@ -504,6 +511,19 @@ public class ReferentialActionOracle implements TestOracle {
                     + "an existing parent, so a rejection would be legitimate)");
             return findings;
         }
+        if (foreignKey.isSelfReferential() && (action == ReferentialAction.CASCADE
+                || action == ReferentialAction.SET_NULL)
+                && org.ddlsmith.ddl.gen.EngineTraits.refusesSelfReferentialUpdateAction(
+                        dialect::includesEngine)) {
+            // The adapter rewrites this combination before it reaches the engine, so reaching it here
+            // means a schema that did not come through the adapter - a hand-written one, or a failure
+            // log recorded before the rewrite existed. MySQL refuses such an update by design and the
+            // manual says so, so the rejection is not evidence about the engine.
+            notes.add(prefix + "update probe skipped for declared " + action + ", " + dialect.getName()
+                    + " cannot use a self-referential ON UPDATE CASCADE or SET NULL, so the update is "
+                    + "refused by design rather than by a defect");
+            return findings;
+        }
         List<Map<String, Object>> candidates = referencedParents(context, database, population, child, parent,
                 foreignKey);
         if (candidates.isEmpty()) {
@@ -554,9 +574,9 @@ public class ReferentialActionOracle implements TestOracle {
             }
         }
         if (action == ReferentialAction.CASCADE && referencing > 1L
-                && foreignKeyColumnsAreUnique(child, foreignKey)) {
+                && cascadeWrittenColumnsAreUnique(child, foreignKey)) {
             notes.add(prefix + "update probe skipped, the cascade would copy the new key into " + referencing
-                    + " child rows whose foreign key columns are unique, so a rejection would be a legitimate "
+                    + " child rows whose cascaded columns are unique, so a rejection would be a legitimate "
                     + "uniqueness error rather than a referential-action defect");
             return findings;
         }
@@ -728,30 +748,62 @@ public class ReferentialActionOracle implements TestOracle {
         return true;
     }
 
-    private static boolean foreignKeyColumnsAreUnique(Table child, ForeignKey foreignKey) {
+    /**
+     * @return true when the columns an update of the parent key writes in the child form a key of the
+     *         child, so that copying the new key into several child rows has to collide.
+     *
+     * <p>The statement moves one parent key, and every foreign key of the child that references that
+     * same key with {@code ON UPDATE CASCADE} writes its columns in the same statement. Child rows that
+     * referenced the parent therefore all end up carrying the same tuple in the <em>union</em> of those
+     * columns, so the union is what has to be unique for the cascade to be possible — not the columns of
+     * the constraint under test. A campaign schema had {@code fk_t_3_r_0(e4_src_a18)} and
+     * {@code fk_t_3_r_1(e4_dst_a18)} both cascading onto {@code t_4(a18)}, with
+     * {@code UNIQUE (e4_src_a18, e4_dst_a18)} on the child: neither single column is unique on its own,
+     * so the guard missed it, MySQL answered error 1761 ("Foreign key constraint for table 't_4', record
+     * '2001-06-26' would lead to a duplicate entry in table 't_3_r', key 'uq_t_3_r_0'"), and the report
+     * blamed the referential action for a collision the generated schema had made unavoidable.</p>
+     */
+    static boolean cascadeWrittenColumnsAreUnique(Table child, ForeignKey foreignKey) {
         java.util.Set<String> columns = new java.util.LinkedHashSet<>();
-        for (String column : foreignKey.getColumns()) {
-            columns.add(ConstraintEnforcementOracle.Support.normalize(column));
+        for (ForeignKey candidate : child.getForeignKeys()) {
+            if (candidate != foreignKey && candidate.getOnUpdate() != ReferentialAction.CASCADE) {
+                continue;
+            }
+            // a sibling that cascades onto a different key of the same parent is not touched by this
+            // statement, so its columns must not narrow the guard
+            if (!sameTarget(candidate, foreignKey)) {
+                continue;
+            }
+            for (String column : candidate.getColumns()) {
+                columns.add(ConstraintEnforcementOracle.Support.normalize(column));
+            }
         }
-        if (child.getPrimaryKey() != null) {
-            java.util.Set<String> key = new java.util.LinkedHashSet<>();
-            for (String column : child.getPrimaryKey().getColumns()) {
-                key.add(ConstraintEnforcementOracle.Support.normalize(column));
-            }
-            if (key.equals(columns)) {
-                return true;
-            }
+        if (columns.isEmpty()) {
+            return false;
+        }
+        if (child.getPrimaryKey() != null && normalized(child.getPrimaryKey().getColumns()).equals(columns)) {
+            return true;
         }
         for (UniqueConstraint unique : child.getUniqueConstraints()) {
-            java.util.Set<String> key = new java.util.LinkedHashSet<>();
-            for (String column : unique.getColumns()) {
-                key.add(ConstraintEnforcementOracle.Support.normalize(column));
-            }
-            if (key.equals(columns)) {
+            if (normalized(unique.getColumns()).equals(columns)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean sameTarget(ForeignKey left, ForeignKey right) {
+        return left.getReferencedTable() != null
+                && left.getReferencedTable().equalsIgnoreCase(right.getReferencedTable())
+                && normalized(left.getReferencedColumns()).equals(normalized(right.getReferencedColumns()));
+    }
+
+    private static java.util.Set<String> normalized(List<String> columns) {
+        java.util.Set<String> result = new java.util.LinkedHashSet<>();
+        for (String column : columns) {
+            result.add(ConstraintEnforcementOracle.Support.normalize(column));
+        }
+        return result;
     }
 
     /**
@@ -1005,7 +1057,20 @@ public class ReferentialActionOracle implements TestOracle {
         }
     }
 
-    private static String introspectedActions(RelationalSchema introspected, Table child, ForeignKey foreignKey) {
+    /**
+     * @return true when the engine checks this restrictive declaration no later than it checks
+     *         {@code NO ACTION}, so that the excuse written for {@code NO ACTION} covers it as well
+     */
+    private static boolean restrictiveCheckIsDeferred(DatabaseUnderTest database, ReferentialAction action) {
+        if (action == ReferentialAction.NO_ACTION) {
+            return true;
+        }
+        return action == ReferentialAction.RESTRICT
+                && org.ddlsmith.ddl.gen.EngineTraits.restrictIsNoAction(database.getDialect()::includesEngine);
+    }
+
+    /** Package-private so that the matching rule can be asserted directly; see the class comment. */
+    static String introspectedActions(RelationalSchema introspected, Table child, ForeignKey foreignKey) {
         if (introspected == null) {
             return null;
         }
@@ -1013,14 +1078,58 @@ public class ReferentialActionOracle implements TestOracle {
         if (table == null) {
             return null;
         }
+        ForeignKey match = matchIntrospected(table, foreignKey);
+        if (match == null) {
+            return null;
+        }
+        return "ON DELETE " + match.getOnDelete() + ", ON UPDATE " + match.getOnUpdate();
+    }
+
+    /**
+     * Finds the introspected counterpart of a declared foreign key.
+     *
+     * <p>The columns decide, not the arity. A child table may hold two foreign keys to the same parent -
+     * a recursive relationship mapped with a source and a destination column is the common case - and
+     * matching on "as many columns, and the same referenced table" reports the first one's referential
+     * actions for the second. Measured on the MySQL campaign: a report announced
+     * {@code Introspected: ON DELETE CASCADE, ON UPDATE RESTRICT} for a constraint the catalog held as
+     * {@code ON DELETE RESTRICT}, having picked up its sibling's rule and so accusing the engine of
+     * storing an action it had stored correctly.</p>
+     *
+     * <p>The name is the fallback, for an engine that renames the columns on the way in; matching on
+     * the name alone would be enough today, but a foreign key the generator emitted without a name
+     * comes back with one the engine invented.</p>
+     */
+    private static ForeignKey matchIntrospected(Table table, ForeignKey foreignKey) {
         for (ForeignKey candidate : table.getForeignKeys()) {
-            if (candidate.getColumns().size() == foreignKey.getColumns().size()
-                    && candidate.getReferencedTable() != null
-                    && candidate.getReferencedTable().equalsIgnoreCase(foreignKey.getReferencedTable())) {
-                return "ON DELETE " + candidate.getOnDelete() + ", ON UPDATE " + candidate.getOnUpdate();
+            if (candidate.getReferencedTable() != null
+                    && candidate.getReferencedTable().equalsIgnoreCase(foreignKey.getReferencedTable())
+                    && sameColumns(candidate.getColumns(), foreignKey.getColumns())) {
+                return candidate;
+            }
+        }
+        if (foreignKey.getName() != null) {
+            for (ForeignKey candidate : table.getForeignKeys()) {
+                if (foreignKey.getName().equalsIgnoreCase(candidate.getName())) {
+                    return candidate;
+                }
             }
         }
         return null;
+    }
+
+    private static boolean sameColumns(List<String> left, List<String> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            String a = left.get(i);
+            String b = right.get(i);
+            if (a == null || b == null || !a.equalsIgnoreCase(b)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String declaredVersusObserved(ForeignKey foreignKey, Table child, String introspectedActions,
