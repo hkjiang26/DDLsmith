@@ -1,0 +1,6 @@
+mysql --random-seed 24600001 --databases-per-graph 8 --input-slot 1 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
+mysql --random-seed 324500005 --databases-per-graph 8 --input-slot 2 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
+mysql --random-seed 584600003 --databases-per-graph 8 --input-slot 2 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
+mysql --random-seed 64600002 --databases-per-graph 8 --input-slot 1 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
+mysql --random-seed 64600002 --databases-per-graph 8 --input-slot 3 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
+mysql --random-seed 794600000 --databases-per-graph 8 --input-slot 7 --num-tries 1 --min-node-num 6 --max-node-num 40 --algorithm differential --compare-with postgres@18.6 --graph-generator sliding --schema-name ddlsmith_dif
