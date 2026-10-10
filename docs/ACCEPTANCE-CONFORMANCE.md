@@ -90,6 +90,54 @@ produced no expectation and why.
 | `--evolve-steps` runs | always | the schema under test is no longer the mapped schema, so the oracle declines the input (`IgnoreMeException`) instead of reporting the evolution |
 | Materialized views | — | only plain views are unfolded |
 
+### 2.4 The rest of the bank: paths, aggregates and ordering
+
+Measured on 2026-10-10 with the committed build, 40 generated databases (20 on MySQL 26.7.0 through a
+live server, 20 on SQLite 3.49.1) with `--log-each-select`, one thread, seed 9 100 000 — every statement
+the oracle executed is on disk, so the counts are read rather than estimated
+(`runs/analyze-oracle-strength.py`):
+
+| | |
+| --- | --- |
+| facts asserted per database | **64.2** — 60.3 questions plus 3.9 negative probes |
+| questions per database | min 14, median 56, max 140 (the budget: `6 × (populated tables + usable foreign keys) + 8`, floor 40, ceiling 200) |
+| tables populated | 4.8 of 7.0 built (70 %) |
+| foreign keys asked about | 4.1 of 9.1 declared (45 %) — the same wall as before: a table the plan could not populate takes its references with it |
+| question mix | minimum and maximum 29 %, row count 12 %, distinct values 11 %, ordering window 8 %, join 8 %, plain table read 7 %, NULL counts 7 %, cardinality 6 %, dangling 6 %, two-hop path 2 %, view unfolding 2 % |
+
+Every family is computed from the rows the engine accepted, and the assumptions the aggregate family
+rests on were measured on the target server rather than assumed: `COUNT(col)` skips NULLs while
+`COUNT(*)` does not, and `MIN`/`MAX` over no values return **one row of NULL** rather than no row
+(`runs/probe-abc-design.sh`, `runs/docs-mysql-fk-and-errors-notes.md` §4). Text minima and orderings are
+only asked when every compared value is ASCII and only for a key whose stored values are all present,
+because where NULLs sort is engine-specific and where strings sort is the collation's business. The
+embedded-engine census was re-run with the extended bank: **150 databases, 3 engines × 50, 0 findings**.
+
+### 2.5 The negative probes
+
+The bank above asks about an instance that is legal by construction, which is why the two-hour MySQL
+experiment measured this oracle asking **32 questions about the database `bugs/mysql/005` lives in and
+reporting nothing at all**. The probes ask the other question, and that database now answers it:
+
+| The database the engine defect lives in (seed 5 600 001, slot 4 of 8, `--graph-generator mix`, MySQL 26.7.0) | Questions | Findings |
+| --- | --- | --- |
+| before — the two-hour experiment, where `constraint-enforcement` found the defect | 32 | **0** from this oracle |
+| after — `runs/verify-mysql-abc.sh`, this oracle alone | 94 | **1 `CONSTRAINT_NOT_ENFORCED`**, naming the NULL-beside-the-key probe |
+
+The same script re-runs the six databases where this oracle used to report a false positive and requires
+silence: all seven cases pass (`runs/verify-mysql-abc-2h.txt`). How often the probes fire where the
+engine is really broken, and how often they fire where it is not, is measured on the 20-database MySQL
+sample above: **3 findings, every one the same engine defect** — one from the NULL-beside-the-key shape
+as designed, one from the plain dangling probe whose generated row happened to carry a NULL in another
+column of the enforcement index, and one from the UPDATE variant — and **0 findings on SQLite for the
+same 20 seeds**, which is the control that says the probes are specific rather than noisy.
+
+What a probe may not do is mistake a refusal for enforcement. A refusal counts only when it is an
+*integrity* refusal: SQLSTATE class `23`, MySQL's CHECK violation (`3819`, SQLSTATE `HY000`), or
+SQLite's vendor code `19` — each measured, because neither the SQLSTATE class nor the vendor code alone
+covers the three engines (defect 13 below). A data exception (`1264` out of range, `1406` truncation)
+means the probe's own row was invalid, and becomes a note instead of a finding.
+
 ---
 
 ## 3. Defects of the oracle's own construction that the measurements found
@@ -144,6 +192,26 @@ evidence that the census means something.
     mapper writes is now clamped through the generated column's type, and a data-exception refusal that
     names a generated column is a note rather than a finding — the materializer does not evaluate
     generated expressions, and a rejection it cannot predict is not evidence about the schema.
+12. **A self-referencing probe pointed the row at itself.** The dangling value was drawn from the parent
+    table's keys, and for a self-referencing reference the row being inserted *becomes* a parent of
+    itself the moment it is stored — so `INSERT INTO t_1 (…, id, e1_dst_id, …) VALUES (…, 6, 6, …)` was
+    accepted on SQLite seed 2, and the engine was reported for a row that was legal after all. The value
+    now has to differ from the row's own key as well, and a test pins it
+    (`ConformanceProbeBuilderTest`).
+13. **Three engines, three refusal vocabularies.** The probe classifier first read the SQLSTATE class
+    alone, which is right for the standard and for H2, wrong for MySQL's `CHECK` (SQLSTATE `HY000`, error
+    `3819`) and wrong for SQLite through the driver DDLSmith uses (no SQLSTATE at all, vendor code `19`).
+    The consequence was not a false positive but a silent loss: four correctly refused probes on SQLite
+    were filed as "asserted nothing", which is what a weakened oracle looks like when it is not measured.
+    Each engine's answer is now measured and pinned (`runs/docs-mysql-fk-and-errors-notes.md` §3).
+14. **The row generator could not extend a third of the tables a probe needed.** Measured over ten
+    generated databases, only **61 %** of the usable foreign keys got a dangling-reference probe: the
+    generator returned nothing for join tables whose key combinations were already taken, and for tables
+    whose only usable parent rows carry NULLs in a key column. A probe row is now also built from a row
+    the engine *already accepted*, with every key column minted afresh — its other values satisfy exactly
+    the constraints they satisfied when they were stored. The fallback is the second source rather than
+    the first, so the `CHECK` constraints the generator does understand are still satisfied by
+    construction; a test asserts the floor of 70 %.
 
 Two of them (5 and 7) are engine-independent properties any consumer of the data model wants;
 they were fixed in the shared helper (`DataModel`) rather than in the extension, and 10 and 11 follow
@@ -176,8 +244,16 @@ oracle of this family means adding a class and a line to the service file.
   materialized (each is announced).
 * The oracle has been run against MySQL — 2 485 databases in the two-hour experiment of 2026-10-10
   (`runs/REPORT-MYSQL-2H.md`), which is where defects 10 and 11 above were found and, after the fixes,
-  where its findings are re-measured one database at a time (`runs/verify-mysql-fixes-2h.txt`).
-  PostgreSQL is still untested: no live server was started in this session.
+  where its findings are re-measured one database at a time (`runs/verify-mysql-fixes-2h.txt`) — and the
+  extended bank with the negative probes has since been measured on MySQL again: 20 further databases
+  for coverage (§2.4) plus the seven-case re-measurement of the blind spot and of the fixed databases
+  (`runs/verify-mysql-abc-2h.txt`). PostgreSQL is still untested: no live server was started for it in
+  this session.
+* Coverage is bounded twice. The row generator decides how much of the graph can be materialized at all
+  (70 % of the built tables in the sample above), and for the probes a second bound is the value: a
+  dangling reference can only be invented for a column whose range or domain is known — integral,
+  decimal, floating point, boolean, temporal and character types are handled, and anything else is
+  skipped and announced. A probe that cannot be built costs coverage, never a finding.
 * Coverage is bounded by the row generator: where the reported instance cannot exist (a mandatory
   reference cycle, a unique constraint on a two-value domain), the oracle announces the gap instead of
   inventing a probe. Improving that means generating instances with deferred constraints or with a

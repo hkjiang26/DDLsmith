@@ -150,6 +150,12 @@ public class MainOptions {
     @Parameter(names = "--max-constraint-probes", description = "The maximum number of constraint probes executed per database.")
     private int maxConstraintProbes = 25;
 
+    @Parameter(names = "--max-conformance-queries", description = "The maximum number of graph-conformance questions"
+            + " asked per database. -1 (the default) sizes the budget from the schema: every populated table's rows"
+            + " and count and every foreign key's three questions first, then the path, aggregate, NULL and ordering"
+            + " families, with a floor of 40 and a ceiling of 200.")
+    private int maxConformanceQueries = -1;
+
     @Parameter(names = "--databases-per-graph", description = "How many databases share one generated graph: the graph is "
             + "generated once per group of this many databases, and each database re-draws the ER interpretation and "
             + "the mapping decisions. Default 8; pass 1 to restore the historic one-graph-per-database behaviour "
@@ -246,6 +252,14 @@ public class MainOptions {
 
     public int getMaxConstraintProbes() {
         return maxConstraintProbes;
+    }
+
+    public int getMaxConformanceQueries() {
+        return maxConformanceQueries;
+    }
+
+    public void setMaxConformanceQueries(int maxConformanceQueries) {
+        this.maxConformanceQueries = maxConformanceQueries;
     }
 
     public int getDatabasesPerGraph() {

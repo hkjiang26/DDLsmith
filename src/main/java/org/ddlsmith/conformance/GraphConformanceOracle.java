@@ -10,14 +10,18 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.ddlsmith.IgnoreMeException;
+import org.ddlsmith.MainOptions;
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.query.QueryResult;
 import org.ddlsmith.common.schema.DataType;
+import org.ddlsmith.common.schema.ForeignKey;
 import org.ddlsmith.common.schema.RelationalSchema;
+import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.conformance.ConformancePopulator.Rejection;
 import org.ddlsmith.data.DataModel;
 import org.ddlsmith.oracle.OracleContext;
 import org.ddlsmith.oracle.OracleContext.DatabaseUnderTest;
+import org.ddlsmith.oracle.OracleContext.ExecutionEvent;
 import org.ddlsmith.oracle.OracleFailure;
 import org.ddlsmith.oracle.OracleFailure.FailureKind;
 import org.ddlsmith.oracle.StatementRunner;
@@ -49,6 +53,9 @@ import org.ddlsmith.oracle.impl.OracleSupport;
  *       against its own body.</li>
  *   <li>The engine's answers are compared with the instance. A difference is
  *       {@link FailureKind#DATA_MISMATCH}.</li>
+ *   <li>{@link ConformanceProbe}s are issued last: rows the schema forbids, which the engine has to refuse,
+ *       and rows the standard allows, which it has to store. This is the direction the query bank cannot
+ *       ask about, and it is where every foreign-key defect the MySQL campaigns found lives.</li>
  * </ol>
  *
  * <h2>Why a difference is a defect</h2>
@@ -78,8 +85,17 @@ import org.ddlsmith.oracle.impl.OracleSupport;
 public class GraphConformanceOracle implements TestOracle {
 
     public static final String NAME = "graph-conformance";
-    /** Upper bound on the number of semantic queries executed per database. */
-    public static final int MAX_QUERIES = 40;
+    /**
+     * The floor of the per-database question budget. The budget itself grows with the schema (see
+     * {@link #queryBudget}), because a fixed 40 made the cap — not the schema — the limit on what the
+     * largest generated databases were asked: measured over 20 databases, one in twenty reached it. The
+     * floor stays where it was so that a small database is asked exactly as much as before.
+     */
+    public static final int MIN_QUERIES = 40;
+    /** The ceiling of the per-database question budget, so a pathological schema cannot run away. */
+    public static final int MAX_QUERIES = 200;
+    /** The ceiling on the probes per database; every probe is a write, unlike a question. */
+    public static final int MAX_PROBES = 64;
 
     @Override
     public String getName() {
@@ -151,20 +167,62 @@ public class GraphConformanceOracle implements TestOracle {
         for (Rejection rejection : population.rejections) {
             findings.add(rejection(database, rejection));
         }
-        List<SemanticQuery> queries = new ArrayList<>(
+        List<SemanticQuery> bank = new ArrayList<>(
                 queries(context, database, schema, plan, population, notes));
-        if (queries.isEmpty()) {
+        if (bank.isEmpty()) {
             notes.add(prefix + "no semantic query could be derived from the materialized instance");
-            return;
         }
-        Randomly.shuffle(queries);
-        int limit = Math.min(queries.size(), MAX_QUERIES);
-        if (queries.size() > limit) {
-            notes.add(prefix + "only " + limit + " of " + queries.size() + " semantic queries were executed (the cap"
-                    + " is " + MAX_QUERIES + " per database)");
+        // The bank is stratified rather than sampled as a whole: the questions that are guaranteed for
+        // every table and every foreign key are asked first, and only what is left of the budget goes to
+        // the families that scale with the schema (paths, aggregates, ordering). A database can therefore
+        // no longer ask one question and report success — the failure mode the reach measurement found,
+        // where one database in twenty asked five questions or fewer while the run said nothing.
+        List<SemanticQuery> core = new ArrayList<>();
+        List<SemanticQuery> extended = new ArrayList<>();
+        for (SemanticQuery query : bank) {
+            (query.isCore() ? core : extended).add(query);
         }
-        for (int i = 0; i < limit; i++) {
-            Support.Finding finding = run(context, database, queries.get(i));
+        int budget = queryBudget(context.getOptions(), countUsableTables(schema, plan, population),
+                countUsableForeignKeys(schema, plan, population));
+        int coreToRun = Math.min(core.size(), budget);
+        if (core.size() > coreToRun) {
+            Randomly.shuffle(core);
+        }
+        int extendedToRun = Math.min(extended.size(), budget - coreToRun);
+        if (extendedToRun > 0) {
+            Randomly.shuffle(extended);
+        }
+        if (bank.size() > coreToRun + extendedToRun) {
+            notes.add(prefix + "only " + (coreToRun + extendedToRun) + " of " + bank.size()
+                    + " semantic question(s) were asked (the budget is " + budget + " per database: every"
+                    + " populated table's rows and count, every foreign key's three questions, then the path,"
+                    + " aggregate, NULL and ordering families)");
+        }
+        for (int i = 0; i < coreToRun; i++) {
+            Support.Finding finding = run(context, database, core.get(i));
+            if (finding != null) {
+                findings.add(finding);
+            }
+        }
+        for (int i = 0; i < extendedToRun; i++) {
+            Support.Finding finding = run(context, database, extended.get(i));
+            if (finding != null) {
+                findings.add(finding);
+            }
+        }
+        // The probes go last, and this ordering is load-bearing: a probe inserts a row, and a row that is
+        // not part of the instance must never be visible to a question about the instance. Each probe's
+        // own effect is removed again right after it, so the next probe and the final cleanup see the
+        // instance the questions saw.
+        List<ConformanceProbe> probes = probes(context, database, schema, plan, population, notes);
+        int probeBudget = Math.min(MAX_PROBES, 4 * countUsableForeignKeys(schema, plan, population) + 8);
+        int probeLimit = Math.min(probes.size(), probeBudget);
+        if (probes.size() > probeLimit) {
+            notes.add(prefix + "only " + probeLimit + " of " + probes.size() + " negative probe(s) were issued"
+                    + " (the budget is " + probeBudget + " per database)");
+        }
+        for (int i = 0; i < probeLimit; i++) {
+            Support.Finding finding = runProbe(context, database, probes.get(i), prefix, notes);
             if (finding != null) {
                 findings.add(finding);
             }
@@ -195,6 +253,61 @@ public class GraphConformanceOracle implements TestOracle {
             RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
             List<String> notes) {
         return SemanticQueryBuilder.build(context, database, schema, plan, population, notes);
+    }
+
+    /**
+     * Test seam: the probes, the assertions that ask the engine to <em>refuse</em> a row.
+     *
+     * <p>A test can override it to hand the oracle a probe the engine must refuse, and assert that the
+     * acceptance is reported — the same both-directions discipline the other data oracles use.</p>
+     */
+    protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
+            RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
+            List<String> notes) {
+        return ConformanceProbeBuilder.build(context, database, schema, plan, population, notes);
+    }
+
+    /**
+     * The questions one database is asked: the floor the cap has always been, or — when the schema is
+     * bigger than the floor can cover — a budget proportional to what there is to ask about, so that the
+     * cap stops being the limit on the largest generated databases. {@code --max-conformance-queries}
+     * overrides it.
+     */
+    static int queryBudget(MainOptions options, int usableTables, int usableForeignKeys) {
+        int configured = options == null ? -1 : options.getMaxConformanceQueries();
+        if (configured > 0) {
+            return Math.min(configured, MAX_QUERIES);
+        }
+        return Math.max(MIN_QUERIES, Math.min(MAX_QUERIES, 6 * (usableTables + usableForeignKeys) + 8));
+    }
+
+    private static int countUsableTables(RelationalSchema schema, ConformancePlan plan,
+            ConformancePopulator.Result population) {
+        int count = 0;
+        for (Table table : schema.getTables()) {
+            if (plan.populates(table.getName()) && population.isUsable(table.getName())
+                    && !population.acceptedRows(table.getName()).isEmpty()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int countUsableForeignKeys(RelationalSchema schema, ConformancePlan plan,
+            ConformancePopulator.Result population) {
+        int count = 0;
+        for (RelationalSchema.ForeignKeyRef ref : schema.getAllForeignKeys()) {
+            ForeignKey foreignKey = ref.foreignKey;
+            Table parent = schema.getTable(foreignKey.getReferencedTable());
+            if (parent == null) {
+                continue;
+            }
+            if (plan.populates(ref.table.getName()) && plan.populates(parent.getName())
+                    && population.isUsable(ref.table.getName()) && population.isUsable(parent.getName())) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /* ================================================================== execution */
@@ -242,6 +355,56 @@ public class GraphConformanceOracle implements TestOracle {
         return mismatch(database, query, expected, actual, explanation);
     }
 
+    /**
+     * Issues one probe and classifies the engine's answer.
+     *
+     * <p>The classification is the part that keeps a probe from becoming a false positive. A refusal is
+     * only evidence about the constraint under test when it is an <em>integrity</em> refusal; a data
+     * exception ({@code 1264} out of range, {@code 1406} truncation) means the probe's own row was
+     * invalid, and the probe then asserts nothing and says so in a note. That distinction is exactly what
+     * the referential-action oracle lacked when it read a {@code 1264} as "the declared action did not
+     * happen".</p>
+     */
+    private Support.Finding runProbe(OracleContext context, DatabaseUnderTest database, ConformanceProbe probe,
+            String prefix, List<String> notes) {
+        ExecutionEvent event = StatementRunner.execute(context, database, probe.getSql(), false,
+                "probe-conformance-probe");
+        if (event.isSucceeded()) {
+            // the engine stored a row that is not part of the instance (either because it is forbidden, or
+            // because it was legal and is now being undone): put the database back the way it was
+            removeProbeEffect(context, database, probe, prefix, notes);
+            if (probe.getKind() == ConformanceProbe.Kind.MUST_REJECT) {
+                return probeAccepted(database, probe);
+            }
+            return null;
+        }
+        if (ConformanceProbeBuilder.isIntegrityRejection(event)) {
+            if (probe.getKind() == ConformanceProbe.Kind.MUST_ACCEPT) {
+                return probeRefused(database, probe, event);
+            }
+            return null;
+        }
+        notes.add(prefix + "the probe '" + probe.getGroup() + "' asserted nothing: the engine refused the row"
+                + " with " + StatementRunner.describe(event) + ", which is not an integrity violation, so the"
+                + " probe's own row was invalid rather than a constraint being enforced"
+                + (ConformanceProbeBuilder.isDataException(event) ? " (a data exception)" : ""));
+        return null;
+    }
+
+    /** Undoes an accepted probe; a cleanup that fails is a note, never a finding. */
+    private void removeProbeEffect(OracleContext context, DatabaseUnderTest database, ConformanceProbe probe,
+            String prefix, List<String> notes) {
+        if (probe.getCleanupSql() == null || probe.getCleanupSql().isBlank()) {
+            return;
+        }
+        ExecutionEvent event = StatementRunner.execute(context, database, probe.getCleanupSql(), false,
+                "probe-conformance-probe-cleanup");
+        if (!event.isSucceeded()) {
+            notes.add(prefix + "the row of the probe '" + probe.getGroup() + "' could not be removed afterwards ("
+                    + event.getErrorMessage() + "); the database holds one row more than the instance");
+        }
+    }
+
     /** Canonicalizes a result with the declared types of the selected columns. */
     private static List<String> canonicalRows(QueryResult result, List<DataType> types) {
         List<String> rows = new ArrayList<>();
@@ -273,6 +436,57 @@ public class GraphConformanceOracle implements TestOracle {
     }
 
     /* ================================================================== findings */
+
+    /**
+     * A row the schema forbids was stored: the constraint it violates is declared and not enforced.
+     *
+     * <p>This is the finding the query bank cannot produce. Every question the bank asks is about an
+     * instance that is legal by construction, so an engine that accepts what the schema forbids keeps
+     * answering those questions correctly. Measured on the two-hour MySQL run: the database in which
+     * {@code constraint-enforcement} found an unenforced foreign key was asked 32 questions by this
+     * oracle and reported nothing, because none of them ever asked the engine to refuse anything.</p>
+     */
+    private Support.Finding probeAccepted(DatabaseUnderTest database, ConformanceProbe probe) {
+        StringBuilder details = new StringBuilder();
+        details.append("A row the declared schema forbids was stored by the engine.\n");
+        details.append("Probe      : ").append(probe.getDescription()).append('\n');
+        details.append("Table      : ").append(probe.getTable()).append('\n');
+        details.append("Row        : ").append(probe.getRow()).append('\n');
+        details.append("SQL        : ").append(probe.getSql()).append('\n');
+        details.append("Observed   : the row was stored (the statement succeeded)\n");
+        details.append("Provenance : ").append(probe.getProvenance()).append('\n');
+        details.append("The row was built from the materialized instance and is legal in every other respect:"
+                + " the materialization it points at, its keys and its other references are the ones the engine"
+                + " already stores. Storing it means the constraint named by the probe is declared and not"
+                + " enforced.\n");
+        return Support.Finding.of(FailureKind.CONSTRAINT_NOT_ENFORCED, database.getName(), probe.getGroup(),
+                "a row the schema forbids was stored (" + probe.getGroup() + ")",
+                OracleSupport.truncate(details.toString()), probe.getSql() + ";\n");
+    }
+
+    /**
+     * A row the standard allows was refused: the engine enforces more than the schema declares.
+     *
+     * <p>The probe's shape is the mirror image of the unenforced-foreign-key family: a composite key with
+     * one column NULL is not a reference at all under {@code MATCH SIMPLE}, which MySQL "in effect
+     * enforces full-time" (1.6.3.2 FOREIGN KEY Constraints), so no declared constraint forbids the row.</p>
+     */
+    private Support.Finding probeRefused(DatabaseUnderTest database, ConformanceProbe probe, ExecutionEvent event) {
+        StringBuilder details = new StringBuilder();
+        details.append("A row the declared schema allows was refused by the engine.\n");
+        details.append("Probe      : ").append(probe.getDescription()).append('\n');
+        details.append("Table      : ").append(probe.getTable()).append('\n');
+        details.append("Row        : ").append(probe.getRow()).append('\n');
+        details.append("SQL        : ").append(probe.getSql()).append('\n');
+        details.append("Observed   : ").append(StatementRunner.describe(event)).append('\n');
+        details.append("Provenance : ").append(probe.getProvenance()).append('\n');
+        details.append("The row is legal: a partially NULL composite key is not a reference, so no declared"
+                + " constraint forbids it, and the row is otherwise the one the instance already holds."
+                + " Refusing it means the engine enforces more than the schema declares.\n");
+        return Support.Finding.of(FailureKind.CONSTRAINT_TOO_STRICT, database.getName(), probe.getGroup(),
+                "a row the schema allows was refused (" + probe.getGroup() + ")",
+                OracleSupport.truncate(details.toString()), probe.getSql() + ";\n");
+    }
 
     private Support.Finding rejection(DatabaseUnderTest database, Rejection rejection) {
         StringBuilder details = new StringBuilder();

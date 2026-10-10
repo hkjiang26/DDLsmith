@@ -48,9 +48,20 @@ public final class SemanticQuery {
     private final String referenceSql;
     /** Which graph element or ER construct the query is about. */
     private final String provenance;
+    /**
+     * True for the questions that are guaranteed for every populated table and every foreign key. The
+     * oracle asks those first and spends what is left of its budget on the rest, so that a schema large
+     * enough to reach the budget cannot lose its basic questions to a sample.
+     */
+    private final boolean core;
 
     public SemanticQuery(Kind kind, String group, String description, String sql, List<String> expected,
             List<DataType> types, String referenceSql, String provenance) {
+        this(kind, group, description, sql, expected, types, referenceSql, provenance, false);
+    }
+
+    public SemanticQuery(Kind kind, String group, String description, String sql, List<String> expected,
+            List<DataType> types, String referenceSql, String provenance, boolean core) {
         this.kind = kind;
         this.group = group;
         this.description = description;
@@ -59,6 +70,11 @@ public final class SemanticQuery {
         this.types = types;
         this.referenceSql = referenceSql;
         this.provenance = provenance;
+        this.core = core;
+    }
+
+    public boolean isCore() {
+        return core;
     }
 
     public Kind getKind() {

@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.ForeignKey;
@@ -64,6 +65,10 @@ public final class SemanticQueryBuilder {
         addRowQueries(context, database, schema, plan, population, dialect, queries);
         addForeignKeyQueries(context, database, schema, plan, population, dialect, queries, notes);
         addViewQueries(context, database, schema, plan, dialect, queries, notes);
+        addPathQueries(context, database, schema, plan, population, dialect, queries, notes);
+        addAggregateQueries(context, database, schema, plan, population, dialect, queries);
+        addDistinctValueQueries(context, database, schema, plan, population, dialect, queries);
+        addOrderingQueries(context, database, schema, plan, population, dialect, queries, notes);
         return queries;
     }
 
@@ -100,7 +105,7 @@ public final class SemanticQueryBuilder {
             queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET, "rows of " + table.getName(),
                     "the rows of " + table.getName() + " materialized from the generated graph instance, compared"
                             + " value by value with what the engine stored",
-                    sql, expected, types, null, rows.size() + " planned row(s)"));
+                    sql, expected, types, null, rows.size() + " planned row(s)", true));
         }
     }
 
@@ -189,7 +194,7 @@ public final class SemanticQueryBuilder {
                         "the pairs " + description + " declares, as the join over the foreign key returns them",
                         "SELECT " + String.join(", ", selected) + " FROM " + childRef + " JOIN " + parentRef + " ON "
                                 + on,
-                        joinExpected, joinTypes, null, provenance));
+                        joinExpected, joinTypes, null, provenance, true));
             }
             if (!parentKeys.isEmpty()) {
                 List<String> selected = new ArrayList<>();
@@ -213,7 +218,7 @@ public final class SemanticQueryBuilder {
                                 + ", which must be the number the graph instance produced",
                         "SELECT " + String.join(", ", selectedWithCount) + " FROM " + parentRef + " LEFT JOIN "
                                 + childRef + " ON " + on + " GROUP BY " + String.join(", ", selected),
-                        expected, countTypes, null, provenance));
+                        expected, countTypes, null, provenance, true));
             }
             queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET, group + " (dangling)",
                     "the rows whose " + description + " points at a parent that does not exist (the plan knows of "
@@ -221,7 +226,7 @@ public final class SemanticQueryBuilder {
                     "SELECT " + selectList(dialect, childColumns, CHILD) + " FROM " + childRef + " LEFT JOIN "
                             + parentRef + " ON " + on + " WHERE " + notNullAll(dialect, childColumns, CHILD) + " AND "
                             + PARENT + "." + dialect.quote(parentColumns.get(0).getName()) + " IS NULL",
-                    orphanExpected, childTypes, null, provenance));
+                    orphanExpected, childTypes, null, provenance, true));
         }
     }
 
@@ -245,10 +250,561 @@ public final class SemanticQueryBuilder {
             queries.add(new SemanticQuery(SemanticQuery.Kind.UNFOLD, "view " + view.getName(),
                     "the view " + view.getName() + " must answer exactly what its own definition answers",
                     "SELECT * FROM " + reference, List.of(), List.of(),
-                    "SELECT * FROM (" + body + ") ddlsmith_unfolded", "mapped view definition"));
+                    "SELECT * FROM (" + body + ") ddlsmith_unfolded", "mapped view definition", true));
             notes.add("view " + view.getName() + " is unfolded: SELECT * FROM " + view.getName()
                     + " is compared with its own body");
         }
+    }
+
+    /* ================================================================== paths */
+
+    /** How many two-hop questions one database may be asked; they scale with the foreign-key graph. */
+    private static final int MAX_PATHS = 6;
+
+    /**
+     * The composition of two references, and the join table read from both sides.
+     *
+     * <p>The three questions per foreign key say what each reference holds <em>on its own</em>. Nothing
+     * said what two of them hold together: {@code A -fk1-> M -fk2-> C} must return exactly the pairs the
+     * instance stores, and a join table read through both of its references must reproduce the graph's
+     * edge set. A lost row, a duplicated row or a wrong join shows up here in a shape no single-reference
+     * question has — and it costs no insert, only a query.</p>
+     */
+    private static void addPathQueries(OracleContext context, DatabaseUnderTest database, RelationalSchema schema,
+            ConformancePlan plan, ConformancePopulator.Result population, Dialect dialect,
+            List<SemanticQuery> queries, List<String> notes) {
+        List<Edge> edges = new ArrayList<>();
+        for (RelationalSchema.ForeignKeyRef ref : schema.getAllForeignKeys()) {
+            Table child = ref.table;
+            ForeignKey foreignKey = ref.foreignKey;
+            Table parent = schema.getTable(foreignKey.getReferencedTable());
+            if (parent == null || !plan.populates(child.getName()) || !plan.populates(parent.getName())
+                    || !population.isUsable(child.getName()) || !population.isUsable(parent.getName())) {
+                continue;
+            }
+            edges.add(new Edge(child, parent, foreignKey));
+        }
+        List<SemanticQuery> paths = new ArrayList<>();
+        for (Edge first : edges) {
+            for (Edge second : edges) {
+                if (first.parent != second.child) {
+                    continue;
+                }
+                SemanticQuery query = chainedPath(context, database, dialect, first, second, population);
+                if (query != null) {
+                    paths.add(query);
+                }
+            }
+        }
+        for (Edge left : edges) {
+            for (Edge right : edges) {
+                if (left.child != right.child || left.foreignKey == right.foreignKey) {
+                    continue;
+                }
+                SemanticQuery query = joinTablePath(context, database, dialect, left, right, population);
+                if (query != null) {
+                    paths.add(query);
+                }
+            }
+        }
+        if (paths.isEmpty()) {
+            notes.add("no two-hop question could be derived: no two references of the schema meet at a table"
+                    + " the instance populated");
+            return;
+        }
+        Randomly.shuffle(paths);
+        int limit = Math.min(paths.size(), MAX_PATHS);
+        if (paths.size() > limit) {
+            notes.add("only " + limit + " of " + paths.size() + " two-hop question(s) were asked (the cap is "
+                    + MAX_PATHS + " per database)");
+        }
+        queries.addAll(paths.subList(0, limit));
+    }
+
+    /** {@code A -fk1-> M -fk2-> C}: the pairs the instance stores, through the middle table. */
+    private static SemanticQuery chainedPath(OracleContext context, DatabaseUnderTest database, Dialect dialect,
+            Edge first, Edge second, ConformancePopulator.Result population) {
+        Table a = first.child;
+        Table m = first.parent;
+        Table c = second.parent;
+        List<String> aKey = keyColumnsOf(a);
+        List<String> cKey = keyColumnsOf(c);
+        if (aKey.isEmpty() || cKey.isEmpty()) {
+            return null;
+        }
+        List<DataType> aKeyTypes = typesOf(columnsOf(a, aKey));
+        List<DataType> cKeyTypes = typesOf(columnsOf(c, cKey));
+        List<DataType> firstChildTypes = typesOf(columnsOf(a, first.foreignKey.getColumns()));
+        List<DataType> firstParentTypes = typesOf(columnsOf(m, first.foreignKey.getReferencedColumns()));
+        List<DataType> secondChildTypes = typesOf(columnsOf(m, second.foreignKey.getColumns()));
+        List<DataType> secondParentTypes = typesOf(columnsOf(c, second.foreignKey.getReferencedColumns()));
+
+        Map<String, List<List<Object>>> childrenByReference = new LinkedHashMap<>();
+        for (PlannedRow row : population.acceptedRows(a.getName())) {
+            List<Object> reference = row.valuesOf(first.foreignKey.getColumns());
+            if (containsNull(reference)) {
+                continue;
+            }
+            childrenByReference.computeIfAbsent(tuple(reference, firstChildTypes), key -> new ArrayList<>())
+                    .add(row.valuesOf(aKey));
+        }
+        Map<String, List<Object>> parentKeyByReference = new LinkedHashMap<>();
+        for (PlannedRow row : population.acceptedRows(c.getName())) {
+            List<Object> key = row.valuesOf(second.foreignKey.getReferencedColumns());
+            if (containsNull(key)) {
+                continue;
+            }
+            parentKeyByReference.putIfAbsent(tuple(key, secondParentTypes), row.valuesOf(cKey));
+        }
+        List<String> expected = new ArrayList<>();
+        List<DataType> pairTypes = concatTypes(aKeyTypes, cKeyTypes);
+        for (PlannedRow row : population.acceptedRows(m.getName())) {
+            List<Object> middleKey = row.valuesOf(first.foreignKey.getReferencedColumns());
+            List<Object> middleReference = row.valuesOf(second.foreignKey.getColumns());
+            if (containsNull(middleKey) || containsNull(middleReference)) {
+                continue;
+            }
+            List<List<Object>> children = childrenByReference.get(tuple(middleKey, firstParentTypes));
+            List<Object> parentKey = parentKeyByReference.get(tuple(middleReference, secondChildTypes));
+            if (children == null || parentKey == null) {
+                continue;
+            }
+            for (List<Object> child : children) {
+                expected.add(tuple(concatValues(child, parentKey), pairTypes));
+            }
+        }
+        if (expected.isEmpty()) {
+            return null;
+        }
+        Collections.sort(expected);
+        String sql = "SELECT " + selectList(dialect, columnsOf(a, aKey), "a") + ", "
+                + selectList(dialect, columnsOf(c, cKey), "c") + " FROM "
+                + OracleSupport.tableReference(context, database, a) + " a JOIN "
+                + OracleSupport.tableReference(context, database, m) + " m ON "
+                + joinCondition(dialect, "a", columnsOf(a, first.foreignKey.getColumns()), "m",
+                        columnsOf(m, first.foreignKey.getReferencedColumns()))
+                + " JOIN " + OracleSupport.tableReference(context, database, c) + " c ON "
+                + joinCondition(dialect, "m", columnsOf(m, second.foreignKey.getColumns()), "c",
+                        columnsOf(c, second.foreignKey.getReferencedColumns()));
+        return new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                "path " + a.getName() + " -> " + m.getName() + " -> " + c.getName() + " (2 hops)",
+                "the pairs two references hold together, composed over " + m.getName(),
+                sql, expected, pairTypes, null, pathProvenance(first, second));
+    }
+
+    /** {@code L <- jt -> R}: the edges of the relationship the join table implements. */
+    private static SemanticQuery joinTablePath(OracleContext context, DatabaseUnderTest database, Dialect dialect,
+            Edge left, Edge right, ConformancePopulator.Result population) {
+        Table join = left.child;
+        Table l = left.parent;
+        Table r = right.parent;
+        List<String> lKey = keyColumnsOf(l);
+        List<String> rKey = keyColumnsOf(r);
+        if (lKey.isEmpty() || rKey.isEmpty()) {
+            return null;
+        }
+        List<DataType> lKeyTypes = typesOf(columnsOf(l, lKey));
+        List<DataType> rKeyTypes = typesOf(columnsOf(r, rKey));
+        Map<String, List<Object>> leftKeyByReference = keyByReference(left, population, lKey);
+        Map<String, List<Object>> rightKeyByReference = keyByReference(right, population, rKey);
+        List<String> expected = new ArrayList<>();
+        List<DataType> pairTypes = concatTypes(lKeyTypes, rKeyTypes);
+        for (PlannedRow row : population.acceptedRows(join.getName())) {
+            List<Object> leftReference = row.valuesOf(left.foreignKey.getColumns());
+            List<Object> rightReference = row.valuesOf(right.foreignKey.getColumns());
+            if (containsNull(leftReference) || containsNull(rightReference)) {
+                continue;
+            }
+            List<Object> leftKey = leftKeyByReference.get(tuple(leftReference,
+                    typesOf(columnsOf(join, left.foreignKey.getColumns()))));
+            List<Object> rightKey = rightKeyByReference.get(tuple(rightReference,
+                    typesOf(columnsOf(join, right.foreignKey.getColumns()))));
+            if (leftKey == null || rightKey == null) {
+                continue;
+            }
+            expected.add(tuple(concatValues(leftKey, rightKey), pairTypes));
+        }
+        if (expected.isEmpty()) {
+            return null;
+        }
+        Collections.sort(expected);
+        String sql = "SELECT " + selectList(dialect, columnsOf(l, lKey), "l") + ", "
+                + selectList(dialect, columnsOf(r, rKey), "r") + " FROM "
+                + OracleSupport.tableReference(context, database, join) + " j JOIN "
+                + OracleSupport.tableReference(context, database, l) + " l ON "
+                + joinCondition(dialect, "j", columnsOf(join, left.foreignKey.getColumns()), "l",
+                        columnsOf(l, left.foreignKey.getReferencedColumns()))
+                + " JOIN " + OracleSupport.tableReference(context, database, r) + " r ON "
+                + joinCondition(dialect, "j", columnsOf(join, right.foreignKey.getColumns()), "r",
+                        columnsOf(r, right.foreignKey.getReferencedColumns()));
+        return new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                "edges " + l.getName() + " - " + join.getName() + " - " + r.getName(),
+                "the pairs the relationship implemented by " + join.getName() + " holds, read through both of"
+                        + " its references",
+                sql, expected, pairTypes, null, pathProvenance(left, right));
+    }
+
+    private static Map<String, List<Object>> keyByReference(Edge edge, ConformancePopulator.Result population,
+            List<String> keyColumns) {
+        List<DataType> referenceTypes = typesOf(columnsOf(edge.parent, edge.foreignKey.getReferencedColumns()));
+        Map<String, List<Object>> keys = new LinkedHashMap<>();
+        for (PlannedRow row : population.acceptedRows(edge.parent.getName())) {
+            List<Object> reference = row.valuesOf(edge.foreignKey.getReferencedColumns());
+            if (containsNull(reference)) {
+                continue;
+            }
+            keys.putIfAbsent(tuple(reference, referenceTypes), row.valuesOf(keyColumns));
+        }
+        return keys;
+    }
+
+    private static String pathProvenance(Edge first, Edge second) {
+        String left = first.foreignKey.getDerivedFromRelationship();
+        String right = second.foreignKey.getDerivedFromRelationship();
+        if (left == null && right == null) {
+            return "the composition of two declared references";
+        }
+        return "ER relationships " + (left == null ? first.foreignKey.getColumns().toString() : left) + " and "
+                + (right == null ? second.foreignKey.getColumns().toString() : right);
+    }
+
+    /** One reference, as a path needs it: the child table, the parent table and the foreign key. */
+    private static final class Edge {
+        final Table child;
+        final Table parent;
+        final ForeignKey foreignKey;
+
+        Edge(Table child, Table parent, ForeignKey foreignKey) {
+            this.child = child;
+            this.parent = parent;
+            this.foreignKey = foreignKey;
+        }
+    }
+
+    /* ================================================================== aggregates */
+
+    /**
+     * Questions no row fetch answers: how many rows there are, how many of a column's values are NULL, how
+     * many distinct values a reference holds, and the smallest and largest value of a column.
+     *
+     * <p>These exercise execution paths the row comparison does not: an aggregate scan, the NULL-aware
+     * forms of {@code COUNT}, and the ordering a {@code MIN}/{@code MAX} needs. The expected values are
+     * computed from the rows the engine accepted, so an aggregate the engine answers wrongly is a
+     * difference in exactly the same way a row is.</p>
+     *
+     * <p>Two properties are load-bearing and both were measured on MySQL 26.7.0 under the collation the
+     * dialect now pins ({@code utf8mb4_0900_bin}): {@code COUNT(col)} skips NULLs while {@code COUNT(*)}
+     * does not, and an aggregate over no values returns exactly one row holding NULL — not zero rows.
+     * Text {@code MIN}/{@code MAX} is only asked when every compared value is ASCII, because Java's
+     * {@code String} order and a code-point order agree there and nowhere else.</p>
+     */
+    private static void addAggregateQueries(OracleContext context, DatabaseUnderTest database,
+            RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population, Dialect dialect,
+            List<SemanticQuery> queries) {
+        for (Table table : schema.getTables()) {
+            if (!plan.populates(table.getName()) || !population.isUsable(table.getName())) {
+                continue;
+            }
+            List<PlannedRow> rows = population.acceptedRows(table.getName());
+            if (rows.isEmpty()) {
+                continue;
+            }
+            String reference = OracleSupport.tableReference(context, database, table);
+            String provenance = "the " + rows.size() + " row(s) the instance stores in " + table.getName();
+            List<DataType> counters = List.of(DataType.integer(), DataType.integer());
+            queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET, "rows of " + table.getName() + " (count)",
+                    "how many rows the table holds, which the instance knows exactly",
+                    "SELECT COUNT(*) FROM " + reference, List.of(tuple(List.of(rows.size()), List.of(DataType.integer()))),
+                    List.of(DataType.integer()), null, provenance));
+            for (Column column : comparableColumns(table)) {
+                int nonNull = 0;
+                Object minimum = null;
+                Object maximum = null;
+                boolean ascii = true;
+                for (PlannedRow row : rows) {
+                    Object value = DataModel.getValue(row.getValues(), column.getName());
+                    if (value == null) {
+                        continue;
+                    }
+                    nonNull++;
+                    if (minimum == null || compareValues(value, minimum, column.getType()) < 0) {
+                        minimum = value;
+                    }
+                    if (maximum == null || compareValues(value, maximum, column.getType()) > 0) {
+                        maximum = value;
+                    }
+                    ascii = ascii && isAscii(value);
+                }
+                String quoted = dialect.quote(column.getName());
+                if (column.isNullable()) {
+                    queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                            "rows of " + table.getName() + " (NULLs in " + column.getName() + ")",
+                            "how many rows there are and how many of them carry a value in " + column.getName(),
+                            "SELECT COUNT(*), COUNT(" + quoted + ") FROM " + reference,
+                            List.of(tuple(List.of(rows.size(), nonNull), counters)), counters, null, provenance));
+                    queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                            "rows of " + table.getName() + " (" + column.getName() + " IS NULL)",
+                            "how many rows carry no value in " + column.getName() + ", through the NULL predicate",
+                            "SELECT COUNT(*) FROM " + reference + " WHERE " + quoted + " IS NULL",
+                            List.of(tuple(List.of(rows.size() - nonNull), List.of(DataType.integer()))),
+                            List.of(DataType.integer()), null, provenance));
+                }
+                if (minMaxIsMeaningful(column, ascii)) {
+                    List<DataType> types = List.of(column.getType(), column.getType());
+                    queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                            "values of " + table.getName() + "." + column.getName() + " (minimum and maximum)",
+                            "the smallest and largest value the instance stores in " + column.getName()
+                                    + " (a single row of NULLs when it stores none)",
+                            "SELECT MIN(" + quoted + "), MAX(" + quoted + ") FROM " + reference,
+                            List.of(tuple(java.util.Arrays.asList(minimum, maximum), types)), types, null,
+                            provenance));
+                }
+            }
+            addDistinctReferenceQueries(context, database, schema, population, dialect, queries, table, reference,
+                    provenance);
+        }
+    }
+
+    /** {@code COUNT(DISTINCT ...)} of every single-column reference: how many parents a child points at. */
+    private static void addDistinctReferenceQueries(OracleContext context, DatabaseUnderTest database,
+            RelationalSchema schema, ConformancePopulator.Result population, Dialect dialect,
+            List<SemanticQuery> queries, Table table, String reference, String provenance) {
+        for (RelationalSchema.ForeignKeyRef ref : schema.getAllForeignKeys()) {
+            if (ref.table != table || ref.foreignKey.getColumns().size() != 1) {
+                continue;
+            }
+            if (!population.isUsable(table.getName())) {
+                continue;
+            }
+            String column = ref.foreignKey.getColumns().get(0);
+            Set<String> distinct = new LinkedHashSet<>();
+            for (PlannedRow row : population.acceptedRows(table.getName())) {
+                Object value = DataModel.getValue(row.getValues(), column);
+                if (value != null) {
+                    distinct.add(DataModel.canonical(value, table.getColumn(column).getType()));
+                }
+            }
+            queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                    "references of " + table.getName() + "." + column + " (distinct values)",
+                    "how many distinct parents the rows of " + table.getName() + " point at through " + column,
+                    "SELECT COUNT(DISTINCT " + dialect.quote(column) + ") FROM " + reference,
+                    List.of(tuple(List.of(distinct.size()), List.of(DataType.integer()))),
+                    List.of(DataType.integer()), null, provenance));
+        }
+    }
+
+    /** {@code COUNT(DISTINCT col)} per nullable column: how many different values the instance stores. */
+    private static void addDistinctValueQueries(OracleContext context, DatabaseUnderTest database,
+            RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population, Dialect dialect,
+            List<SemanticQuery> queries) {
+        for (Table table : schema.getTables()) {
+            if (!plan.populates(table.getName()) || !population.isUsable(table.getName())) {
+                continue;
+            }
+            List<PlannedRow> rows = population.acceptedRows(table.getName());
+            if (rows.isEmpty()) {
+                continue;
+            }
+            String reference = OracleSupport.tableReference(context, database, table);
+            String provenance = "the " + rows.size() + " row(s) the instance stores in " + table.getName();
+            for (Column column : comparableColumns(table)) {
+                if (!column.isNullable()) {
+                    continue;
+                }
+                Set<String> values = new LinkedHashSet<>();
+                for (PlannedRow row : rows) {
+                    Object value = DataModel.getValue(row.getValues(), column.getName());
+                    if (value != null) {
+                        values.add(DataModel.canonical(value, column.getType()));
+                    }
+                }
+                if (values.isEmpty()) {
+                    continue;
+                }
+                queries.add(new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                        "values of " + table.getName() + "." + column.getName() + " (distinct values)",
+                        "how many distinct values the instance stores in " + column.getName(),
+                        "SELECT COUNT(DISTINCT " + dialect.quote(column.getName()) + ") FROM " + reference,
+                        List.of(tuple(List.of(values.size()), List.of(DataType.integer()))),
+                        List.of(DataType.integer()), null, provenance));
+            }
+        }
+    }
+
+    /* ================================================================== ordering */
+
+    /**
+     * Two windows of the same ordering: {@code ORDER BY <key> LIMIT n OFFSET m}, so that the engine's
+     * ordering, its row count and its offset arithmetic all have to agree with the instance at once.
+     *
+     * <p>Only a key whose every stored value is non-NULL and non-textual is used, for two reasons that are
+     * properties of the engines rather than of the oracle: where NULLs sort is engine-specific, and where
+     * strings sort depends on the collation. A key the instance fills completely and a numeric or temporal
+     * comparison remove both questions, and a total order is what makes a window well defined.</p>
+     */
+    private static void addOrderingQueries(OracleContext context, DatabaseUnderTest database,
+            RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population, Dialect dialect,
+            List<SemanticQuery> queries, List<String> notes) {
+        for (Table table : schema.getTables()) {
+            if (!plan.populates(table.getName()) || !population.isUsable(table.getName())) {
+                continue;
+            }
+            List<PlannedRow> rows = population.acceptedRows(table.getName());
+            if (rows.size() < 2) {
+                continue;
+            }
+            List<String> key = orderedKey(table, rows);
+            if (key.isEmpty()) {
+                continue;
+            }
+            List<DataType> types = typesOf(columnsOf(table, key));
+            List<List<Object>> sorted = new ArrayList<>();
+            for (PlannedRow row : rows) {
+                sorted.add(row.valuesOf(key));
+            }
+            sorted.sort((left, right) -> compareTuples(left, right, types));
+            int half = Math.max(1, sorted.size() / 2);
+            String order = selectList(dialect, columnsOf(table, key));
+            String reference = OracleSupport.tableReference(context, database, table);
+            String provenance = "the " + rows.size() + " row(s) the instance stores in " + table.getName();
+            queries.add(paginationQuery(table, key, types, sorted, 0, Math.min(half, sorted.size()), order,
+                    reference, provenance, "first"));
+            queries.add(paginationQuery(table, key, types, sorted, half, Math.max(0, sorted.size() - half), order,
+                    reference, provenance, "second"));
+        }
+    }
+
+    private static SemanticQuery paginationQuery(Table table, List<String> key, List<DataType> types,
+            List<List<Object>> sorted, int offset, int count, String order, String reference, String provenance,
+            String window) {
+        List<String> expected = new ArrayList<>();
+        for (int i = offset; i < offset + count && i < sorted.size(); i++) {
+            expected.add(tuple(sorted.get(i), types));
+        }
+        Collections.sort(expected);
+        String sql = "SELECT " + order + " FROM " + reference + " ORDER BY " + order + " LIMIT " + count
+                + " OFFSET " + offset;
+        return new SemanticQuery(SemanticQuery.Kind.MULTISET,
+                "rows of " + table.getName() + " (ordered by " + key + ", " + window + " window)",
+                "a window of the rows ordered by " + key + ": the engine's ordering, its row count and its"
+                        + " offset arithmetic have to agree with the instance",
+                sql, expected, types, null, provenance);
+    }
+
+    /** @return the first key of the table whose stored values are all present and all orderable by value */
+    private static List<String> orderedKey(Table table, List<PlannedRow> rows) {
+        for (List<String> key : ConformancePlanner.keySets(table)) {
+            boolean usable = !key.isEmpty();
+            for (String columnName : key) {
+                Column column = table.getColumn(columnName);
+                if (column == null || column.getType() == null || column.getType().isTextual()) {
+                    usable = false;
+                    break;
+                }
+                for (PlannedRow row : rows) {
+                    if (DataModel.getValue(row.getValues(), columnName) == null) {
+                        usable = false;
+                        break;
+                    }
+                }
+                if (!usable) {
+                    break;
+                }
+            }
+            if (usable) {
+                return key;
+            }
+        }
+        return List.of();
+    }
+
+    private static int compareTuples(List<Object> left, List<Object> right, List<DataType> types) {
+        for (int i = 0; i < left.size() && i < right.size(); i++) {
+            int comparison = compareValues(left.get(i), right.get(i), i < types.size() ? types.get(i) : null);
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(left.size(), right.size());
+    }
+
+    /** Compares two values by what they mean rather than by how they are spelled. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static int compareValues(Object left, Object right, DataType type) {
+        if (left == null || right == null) {
+            return left == null ? (right == null ? 0 : -1) : 1;
+        }
+        java.math.BigDecimal leftNumber = asNumber(left);
+        java.math.BigDecimal rightNumber = asNumber(right);
+        if (leftNumber != null && rightNumber != null) {
+            return leftNumber.compareTo(rightNumber);
+        }
+        java.time.LocalDateTime leftMoment = asMoment(left);
+        java.time.LocalDateTime rightMoment = asMoment(right);
+        if (leftMoment != null && rightMoment != null) {
+            return leftMoment.compareTo(rightMoment);
+        }
+        if (left instanceof Comparable && left.getClass() == right.getClass()) {
+            return ((Comparable) left).compareTo(right);
+        }
+        return DataModel.canonical(left, type).compareTo(DataModel.canonical(right, type));
+    }
+
+    private static java.math.BigDecimal asNumber(Object value) {
+        if (value instanceof Number) {
+            if (value instanceof Double || value instanceof Float) {
+                return java.math.BigDecimal.valueOf(((Number) value).doubleValue());
+            }
+            return new java.math.BigDecimal(value.toString());
+        }
+        return null;
+    }
+
+    private static java.time.LocalDateTime asMoment(Object value) {
+        if (value instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) value).toLocalDateTime();
+        }
+        if (value instanceof java.time.LocalDateTime) {
+            return (java.time.LocalDateTime) value;
+        }
+        if (value instanceof java.sql.Date) {
+            return ((java.sql.Date) value).toLocalDate().atStartOfDay();
+        }
+        if (value instanceof java.time.LocalDate) {
+            return ((java.time.LocalDate) value).atStartOfDay();
+        }
+        if (value instanceof java.util.Date) {
+            return new java.sql.Timestamp(((java.util.Date) value).getTime()).toLocalDateTime();
+        }
+        return null;
+    }
+
+    private static boolean minMaxIsMeaningful(Column column, boolean ascii) {
+        if (column.getType() == null || column.isGenerated()) {
+            return false;
+        }
+        if (column.getType().getCategory() == DataType.Category.BOOLEAN) {
+            return false;
+        }
+        if (column.getType().isTextual()) {
+            return ascii;
+        }
+        return column.getType().isNumeric() || column.getType().isTemporal();
+    }
+
+    private static boolean isAscii(Object value) {
+        String text = String.valueOf(value);
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) > 127) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<String> keyColumnsOf(Table table) {
+        List<List<String>> keys = ConformancePlanner.keySets(table);
+        return keys.isEmpty() ? List.of() : keys.get(0);
     }
 
     /* ================================================================== helpers */
@@ -301,10 +857,19 @@ public final class SemanticQueryBuilder {
     }
 
     private static String joinCondition(Dialect dialect, List<Column> childColumns, List<Column> parentColumns) {
+        return joinCondition(dialect, CHILD, childColumns, PARENT, parentColumns);
+    }
+
+    /**
+     * The ON condition of a join, with the aliases a path needs: a two-hop question is written over three
+     * tables, so the {@code c}/{@code p} aliases of the single-reference questions cannot be reused.
+     */
+    private static String joinCondition(Dialect dialect, String leftAlias, List<Column> leftColumns,
+            String rightAlias, List<Column> rightColumns) {
         List<String> parts = new ArrayList<>();
-        for (int i = 0; i < childColumns.size(); i++) {
-            parts.add(CHILD + "." + dialect.quote(childColumns.get(i).getName()) + " = " + PARENT + "."
-                    + dialect.quote(parentColumns.get(i).getName()));
+        for (int i = 0; i < leftColumns.size() && i < rightColumns.size(); i++) {
+            parts.add(leftAlias + "." + dialect.quote(leftColumns.get(i).getName()) + " = " + rightAlias + "."
+                    + dialect.quote(rightColumns.get(i).getName()));
         }
         return String.join(" AND ", parts);
     }

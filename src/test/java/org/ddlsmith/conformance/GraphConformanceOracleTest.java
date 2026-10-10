@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.ddlsmith.IgnoreMeException;
@@ -14,7 +17,9 @@ import org.ddlsmith.MainOptions;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.RelationalSchema;
+import org.ddlsmith.common.schema.Table;
 import org.ddlsmith.conformance.ConformancePlan.PlannedRow;
+import org.ddlsmith.data.RowGenerator;
 import org.ddlsmith.dbms.h2.H2Dialect;
 import org.ddlsmith.dbms.h2.H2Introspector;
 import org.ddlsmith.dbms.sqlite.SqliteDialect;
@@ -23,6 +28,7 @@ import org.ddlsmith.oracle.OracleContext;
 import org.ddlsmith.oracle.OracleContext.DatabaseUnderTest;
 import org.ddlsmith.oracle.OracleFailure;
 import org.ddlsmith.oracle.OracleFailure.FailureKind;
+import org.ddlsmith.oracle.impl.OracleSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +51,8 @@ class GraphConformanceOracleTest {
         for (long seed : List.of(1L, 2L, 3L, 4L, 5L)) {
             try (ConformanceTestSupport.Session session = sqlite(seed)) {
                 Optional<OracleFailure> failure = new GraphConformanceOracle().verify(session.context);
-                assertTrue(failure.isEmpty(), "seed " + seed + ": " + failure.map(OracleFailure::getTitle).orElse(""));
+                assertTrue(failure.isEmpty(), "seed " + seed + ": "
+                        + failure.map(f -> f.getTitle() + "\n" + f.getDetails()).orElse(""));
             }
         }
         try (ConformanceTestSupport.Session session = h2(1L)) {
@@ -64,10 +71,12 @@ class GraphConformanceOracleTest {
                         List<String> notes) {
                     List<SemanticQuery> queries = super.queries(context, database, schema, plan, population, notes);
                     String table = population.accepted.keySet().iterator().next();
+                    // core, so that the sampling the oracle does around its budget cannot drop the query
+                    // under test: a core question is asked in every database
                     queries.add(0, new SemanticQuery(SemanticQuery.Kind.MULTISET, "corrupted check for the test",
                             "a query whose expected value the test deliberately corrupted",
                             "SELECT COUNT(*) FROM " + database.getDialect().quote(table), List.of("(0)"),
-                            List.of(DataType.integer()), null, "test"));
+                            List.of(DataType.integer()), null, "test", true));
                     return queries;
                 }
             };
@@ -111,6 +120,95 @@ class GraphConformanceOracleTest {
             assertEquals(FailureKind.CONSTRAINT_TOO_STRICT, failure.get().getKind());
             assertTrue(failure.get().getDetails().contains("materialized graph instance requires a row"),
                     failure.get().getDetails());
+        }
+    }
+
+    @Test
+    @DisplayName("a probe the engine accepts is reported as a constraint that is not enforced")
+    void reportsAnAcceptedProbe() throws Exception {
+        try (ConformanceTestSupport.Session session = sqlite(1L)) {
+            GraphConformanceOracle oracle = new GraphConformanceOracle() {
+                @Override
+                protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
+                        RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
+                        List<String> notes) {
+                    // What is under test is the classification, not the row construction: a probe whose
+                    // statement the engine accepts has to become a finding about the constraint it names,
+                    // whatever the probe was about. The statement here changes nothing, so the instance the
+                    // other questions see is untouched either way.
+                    String table = population.accepted.keySet().iterator().next();
+                    String reference = OracleSupport.tableReference(context, database, schema.getTable(table));
+                    return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_REJECT,
+                            "test probe (negative probe: a reference with no parent)", table,
+                            "a row the schema forbids", "DELETE FROM " + reference + " WHERE 1 = 0", null, "test",
+                            Map.of()));
+                }
+            };
+            Optional<OracleFailure> failure = oracle.verify(session.context);
+            assertTrue(failure.isPresent(), "an accepted probe was not reported");
+            assertEquals(FailureKind.CONSTRAINT_NOT_ENFORCED, failure.get().getKind());
+            assertTrue(failure.get().getDetails().contains("the declared schema forbids was stored"),
+                    failure.get().getDetails());
+        }
+    }
+
+    @Test
+    @DisplayName("a row the standard allows, refused with an integrity violation, is reported as too strict")
+    void reportsARefusedMustAcceptProbe() throws Exception {
+        try (ConformanceTestSupport.Session session = h2(1L)) {
+            GraphConformanceOracle oracle = new GraphConformanceOracle() {
+                @Override
+                protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
+                        RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
+                        List<String> notes) {
+                    // H2 refuses the duplicate with SQLSTATE 23505, the integrity class: the probe is a
+                    // MUST_ACCEPT one, so the refusal is the engine enforcing more than the schema declares
+                    String table = population.accepted.keySet().iterator().next();
+                    PlannedRow row = population.accepted.get(table).get(0);
+                    Table definition = schema.getTable(table);
+                    String sql = new RowGenerator(schema, database.getDialect())
+                            .toInsertSql(definition, row.getValues(), Set.of());
+                    return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_ACCEPT,
+                            "test probe (a partially NULL reference (x IS NULL))", table,
+                            "a row the standard allows", sql, null, "test", row.getValues()));
+                }
+            };
+            Optional<OracleFailure> failure = oracle.verify(session.context);
+            assertTrue(failure.isPresent(), "the refusal of a legal row was not reported");
+            assertEquals(FailureKind.CONSTRAINT_TOO_STRICT, failure.get().getKind());
+            assertTrue(failure.get().getDetails().contains("the declared schema allows was refused"),
+                    failure.get().getDetails());
+        }
+    }
+
+    @Test
+    @DisplayName("a probe the engine refuses for another reason is a note, not a finding")
+    void notesAProbeThatWasRefusedForAnotherReason() throws Exception {
+        try (ConformanceTestSupport.Session session = sqlite(3L)) {
+            List<List<String>> capturedNotes = new ArrayList<>();
+            GraphConformanceOracle oracle = new GraphConformanceOracle() {
+                @Override
+                protected List<ConformanceProbe> probes(OracleContext context, DatabaseUnderTest database,
+                        RelationalSchema schema, ConformancePlan plan, ConformancePopulator.Result population,
+                        List<String> notes) {
+                    // A refusal that is not an integrity refusal says the probe's own row was invalid — the
+                    // mistake the referential-action oracle made when it read a 1264 as an unenforced
+                    // constraint. Nothing may be reported, and the report has to say why.
+                    capturedNotes.add(notes);
+                    String table = population.accepted.keySet().iterator().next();
+                    String reference = OracleSupport.tableReference(context, database, schema.getTable(table));
+                    return List.of(new ConformanceProbe(ConformanceProbe.Kind.MUST_REJECT,
+                            "test probe (negative probe: a reference with no parent)", table,
+                            "a row the schema forbids",
+                            "INSERT INTO " + reference + " (ddlsmith_no_such_column) VALUES (1)", null, "test",
+                            Map.of()));
+                }
+            };
+            assertTrue(oracle.verify(session.context).isEmpty(),
+                    "a probe whose row was invalid was reported as a defect");
+            assertFalse(capturedNotes.isEmpty(), "the probe seam was not called");
+            String notes = String.join("\n", capturedNotes.get(0));
+            assertTrue(notes.contains("asserted nothing"), "the note explaining the skip is missing: " + notes);
         }
     }
 

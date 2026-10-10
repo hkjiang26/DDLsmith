@@ -1,0 +1,34 @@
+jar   : /home/jhk/workspace/ddlsmith-2h/DDLSmith/target/DDLSmith.jar
+out   : /home/jhk/workspace/ddlsmith-2h/campaign/mysql-2h-conformance/abc-verification
+cases : 7
+
+fixed-conf-hybrid-db28     PASS    exit=0   db=1 unreachable=0 stmts=59    queries=70    failures=0   kinds=none                    
+                                   the same class
+fixed-conf-hybrid-db24     PASS    exit=0   db=1 unreachable=0 stmts=51    queries=42    failures=0   kinds=none                    
+                                   used to be a collation false positive; the probes must not replace it with another
+blind-spot-005             PASS    exit=1   db=1 unreachable=0 stmts=76    queries=94    failures=1   kinds= 1 FAILURE [CONSTRAINT_NOT_ENFORCED] 
+                                   c2h01/all-deep database12: the database the engine defect bugs/mysql/005 was found in; the old oracle asked 32 questions and reported nothing
+fixed-conf-tree-db20       PASS    exit=0   db=1 unreachable=0 stmts=52    queries=74    failures=0   kinds=none                    
+                                   the same class
+fixed-conf-tree-db18       PASS    exit=0   db=1 unreachable=0 stmts=43    queries=42    failures=0   kinds=none                    
+                                   the same class, on tree graphs
+fixed-conf-hybrid-db31     PASS    exit=0   db=1 unreachable=0 stmts=56    queries=34    failures=0   kinds=none                    
+                                   the same class
+fixed-conf-random-db24     PASS    exit=0   db=1 unreachable=0 stmts=46    queries=15    failures=0   kinds=none                    
+                                   used to be the generated-column range class
+
+=== summary (15s wall) ===
+case	verdict	exit	databases	unreachable	statements	queries	failures	kinds	expectation
+fixed-conf-hybrid-db28	PASS	0	1	0	59	70	0	none	silent
+fixed-conf-hybrid-db24	PASS	0	1	0	51	42	0	none	silent
+blind-spot-005	PASS	1	1	0	76	94	1	 1 FAILURE [CONSTRAINT_NOT_ENFORCED] 	probe
+fixed-conf-tree-db20	PASS	0	1	0	52	74	0	none	silent
+fixed-conf-tree-db18	PASS	0	1	0	43	42	0	none	silent
+fixed-conf-hybrid-db31	PASS	0	1	0	56	34	0	none	silent
+fixed-conf-random-db24	PASS	0	1	0	46	15	0	none	silent
+
+=== reaping the namespaces these runs created ===
+[2026-10-10T20:49:39+08:00] [reap] mysql: dropped 7 namespace(s) in 3s (verified read-back; 0 in failed batches)
+[2026-10-10T20:55:09+08:00] [reap] mysql: dropped 7 namespace(s) in 2s (verified read-back; 0 in failed batches)
+
+VERDICT: PASS - the blind spot is closed and the fixed databases stay silent

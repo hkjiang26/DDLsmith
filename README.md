@@ -125,7 +125,7 @@ DDLSmith targets exactly these, with black-box oracles that only use SQL any cli
 | `metamorphic-alter` | `ALTER TABLE` plus its inverse does not restore the schema, or an ALTER-built schema differs from the equivalent directly-created one. |
 | `idempotence` | `IF NOT EXISTS` / `IF EXISTS` / `OR REPLACE` are accepted but not honoured. |
 | `pivot-row` | Rows that were inserted with known values are not what queries return (silent coercion, truncation, wrong aggregate semantics). |
-| `graph-conformance` | The database does not store, or does not answer about, the **graph instance the schema was derived from**: a row the graph requires is rejected, a join returns different pairs than the instance holds, a parent has a different number of children than the graph produced, a reference dangles, or a generated view disagrees with its own definition. It is an **extension oracle** (see §13): it plugs in through `META-INF/services` and is selected like any other (`--oracle graph-conformance`, or `ALL`). |
+| `graph-conformance` | The database does not store, or does not answer about, the **graph instance the schema was derived from**: a row the graph requires is rejected, a join or a two-hop path returns different pairs than the instance holds, a parent has a different number of children than the graph produced, an aggregate, a NULL count or an ordering window disagrees with the instance, a reference dangles, or a generated view disagrees with its own definition. It also asks the opposite question, which no other oracle of this family asks from the graph: a row the schema **forbids** has to be refused (a reference with no parent — with or without a NULL beside the key of the index the check is made with — a second child of a one-to-one parent), and a row the standard **allows** has to be stored (a partially NULL composite key, which `MATCH SIMPLE` says is not a reference at all). It is an **extension oracle** (see §13): it plugs in through `META-INF/services` and is selected like any other (`--oracle graph-conformance`, or `ALL`). |
 
 The oracles are all *black-box* and *reproducible*: every failure is written to `logs/` together
 with the seed, the generated graph, the ER diagram, the mapping decisions and the exact statement
@@ -134,12 +134,18 @@ script, so it can be replayed with `--reproduce`.
 `graph-conformance` is the wholesale counterpart of the data oracles: instead of probing one
 constraint at a time it materializes the whole generated graph instance — nodes to rows, edges to
 foreign key values or join rows, generalization/category/weak-entity links to the references the
-mapper created for them — and then checks every populated table's rows, every foreign key's join and
-per-parent child count, every dangling reference and every view against what it inserted. One graph
-therefore becomes hundreds of implicit probes and joins per database, computed from the graph rather
-than from a second engine or a rewritten query. Its measured false-positive census (300 databases,
-about 6 000 semantic queries, 0 findings) and the gaps it announces rather than guesses are recorded
-in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md).
+mapper created for them — and then checks every populated table's rows and counts, every foreign key's
+join, per-parent child count and dangling references, every two-hop path, every aggregate, NULL count
+and ordering window, and every view against what it inserted. One graph therefore becomes of the order
+of a hundred questions per database, computed from the graph rather than from a second engine or a
+rewritten query, plus a handful of **negative probes**: rows the schema forbids, which the engine has to
+refuse, and rows the standard allows, which it has to store. A refusal is only believed when it is an
+*integrity* refusal — a data exception means the probe's own row was invalid, and becomes a note
+instead of a finding. Its measured false-positive census (300 databases, about 6 000 semantic queries,
+0 findings on the embedded engines) and the gaps it announces rather than guesses are recorded in
+[docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md); the probes' own measurement is in
+§2.5 of that document, including the database where the old oracle asked 32 questions and reported
+nothing while the engine defect `bugs/mysql/005` was in front of it, and where it now reports it.
 
 ## 4. Requirements
 
@@ -252,6 +258,7 @@ java -jar target/DDLSmith.jar sqlite --random-seed 42 --num-tries 1
 | `--input-slot` | Which database of a group to generate (default 0). Used to regenerate the exact input of one database. |
 | `--insert-rows` | Rows inserted per table before the data oracles run. |
 | `--max-constraint-probes` | Upper bound on constraint probes per database. |
+| `--max-conformance-queries` | Upper bound on the questions the `graph-conformance` oracle asks per database. Default `-1`: the budget is sized from the schema (every populated table's rows and count and every foreign key's three questions first, then the two-hop, aggregate, NULL and ordering families), with a floor of 40 and a ceiling of 200. |
 | `--schema-name` | Namespace used for generated objects (engines without schemas ignore it). |
 | `--threads` | Number of concurrent threads. Every database is still generated from its own seed, so the thread count does not change the input. |
 | `--timeout-seconds` | Stop after this many seconds. |
