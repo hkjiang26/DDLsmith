@@ -214,7 +214,6 @@ public final class BugRepository {
             }
         }
         // a defect found in the same database as another is very often its consequence
-        // a defect found in the same database as another is very often its consequence
         boolean engineRejectedAStatement = failures.stream()
                 .anyMatch(failure -> failure.getKind() == OracleFailure.FailureKind.UNEXPECTED_ERROR);
         for (BugEntry entry : filed) {
@@ -252,6 +251,28 @@ public final class BugRepository {
     }
 
     /* ------------------------------------------------------------------ writing */
+
+    /**
+     * @return the confidence line of a report.
+     *
+     * <p>A defect found in the same database as a statement the engine rejected cannot be called high
+     * confidence. The catalog cannot match a schema whose {@code CREATE TABLE} never ran, so a mismatch
+     * that follows a rejection is the rejection's shadow rather than an independent defect — and the
+     * report itself already says so under "Suspected cascade". The flag used to be recorded and then
+     * ignored here, so the MySQL campaign filed four separately numbered reports for one failed
+     * {@code CREATE TABLE} and every one of them claimed "high — reported by a verified oracle", which
+     * turned one generator defect into four engine defects.</p>
+     */
+    private static String confidenceOf(BugEntry entry) {
+        if (entry.suspectedCascade) {
+            return "**needs review** — the engine rejected a statement in the same database, so this may "
+                    + "be that rejection's consequence rather than a defect of its own";
+        }
+        return VERIFIED_ORACLES.contains(entry.oracleName)
+                ? "high — reported by a verified oracle"
+                : "**needs review** — reported by an experimental oracle, which can also be wrong about "
+                        + "DDLSmith's own behaviour";
+    }
 
     private void write(BugEntry entry, MainOptions options, String detailContext) {
         if (entry.loaded) {
@@ -390,10 +411,7 @@ public final class BugRepository {
         sb.append("| **Defect id** | `").append(entry.id).append("` |\n");
         sb.append("| **Failure kind** | `").append(entry.kind).append("` |\n");
         sb.append("| **Oracle** | `").append(entry.oracleName).append("` |\n");
-        sb.append("| **Confidence** | ").append(VERIFIED_ORACLES.contains(entry.oracleName)
-                ? "high — reported by a verified oracle"
-                : "**needs review** — reported by an experimental oracle, which can also be wrong about "
-                        + "DDLSmith's own behaviour").append(" |\n");
+        sb.append("| **Confidence** | ").append(confidenceOf(entry)).append(" |\n");
         if (entry.suspectedCascade) {
             sb.append("| **Suspected cascade** | yes — the engine rejected a statement in the same database, "
                     + "so this may be a consequence of that rejection rather than a defect of its own |\n");

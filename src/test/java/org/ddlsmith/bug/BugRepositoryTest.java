@@ -121,6 +121,11 @@ class BugRepositoryTest {
         String content = Files.readString(cascade.getFile());
         assertTrue(content.contains("Suspected cascade"), content);
         assertTrue(content.contains("Found in the same database as"), content);
+        // Marking it and then calling it high confidence is what turned one failed CREATE TABLE into
+        // four engine defects on the MySQL campaign, so the two lines have to agree.
+        assertFalse(content.contains("high — reported by a verified oracle"),
+                "a suspected cascade must not also claim high confidence: " + content);
+        assertTrue(content.contains("may be that rejection's consequence"), content);
     }
 
     /** An experimental oracle's finding is recorded but must not read as a confirmed engine defect. */
