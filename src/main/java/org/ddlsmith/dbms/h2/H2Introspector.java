@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -164,7 +164,7 @@ public class H2Introspector extends AbstractIntrospector {
     /* ------------------------------------------------------------------ entry point */
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String schema = schemaName == null || schemaName.isBlank() ? DEFAULT_SCHEMA : schemaName;
         RelationalSchema result = new RelationalSchema(schema);
         Map<String, Table> tables = readTables(connection, schema, result);
@@ -180,7 +180,7 @@ public class H2Introspector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ tables */
 
-    private Map<String, Table> readTables(DDLSmithDBConnection connection, String schema, RelationalSchema result)
+    private Map<String, Table> readTables(DDLsmithDBConnection connection, String schema, RelationalSchema result)
             throws SQLException {
         Map<String, Table> tables = new LinkedHashMap<>();
         List<Map<String, Object>> rows = query(connection,
@@ -205,7 +205,7 @@ public class H2Introspector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ columns */
 
-    private void readColumns(DDLSmithDBConnection connection, String schema, Map<String, Table> tables,
+    private void readColumns(DDLsmithDBConnection connection, String schema, Map<String, Table> tables,
             Map<String, Map<String, Object>> elementTypes, Map<String, List<String>> enumValues) throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_DEFAULT, IS_NULLABLE, DATA_TYPE,"
@@ -343,7 +343,7 @@ public class H2Introspector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ constraints */
 
-    private void readConstraints(DDLSmithDBConnection connection, String schema, Map<String, Table> tables)
+    private void readConstraints(DDLsmithDBConnection connection, String schema, Map<String, Table> tables)
             throws SQLException {
         Map<String, String> constraintTable = new LinkedHashMap<>();
         Map<String, String> constraintType = new LinkedHashMap<>();
@@ -490,7 +490,7 @@ public class H2Introspector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ indexes */
 
-    private void readIndexes(DDLSmithDBConnection connection, String schema, Map<String, Table> tables)
+    private void readIndexes(DDLsmithDBConnection connection, String schema, Map<String, Table> tables)
             throws SQLException {
         Map<String, List<Map<String, Object>>> indexColumns = new TreeMap<>();
         for (Map<String, Object> row : query(connection,
@@ -535,7 +535,7 @@ public class H2Introspector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ views and sequences */
 
-    private void readViews(DDLSmithDBConnection connection, String schema, RelationalSchema result)
+    private void readViews(DDLsmithDBConnection connection, String schema, RelationalSchema result)
             throws SQLException {
         for (Map<String, Object> row : query(connection,
                 "SELECT TABLE_NAME, VIEW_DEFINITION FROM INFORMATION_SCHEMA.VIEWS"
@@ -564,7 +564,7 @@ public class H2Introspector extends AbstractIntrospector {
         return result;
     }
 
-    private void readSequences(DDLSmithDBConnection connection, String schema, RelationalSchema result)
+    private void readSequences(DDLsmithDBConnection connection, String schema, RelationalSchema result)
             throws SQLException {
         for (Map<String, Object> row : query(connection,
                 "SELECT SEQUENCE_NAME, START_VALUE, MINIMUM_VALUE, MAXIMUM_VALUE, INCREMENT, CYCLE_OPTION"
@@ -594,7 +594,7 @@ public class H2Introspector extends AbstractIntrospector {
      * The element type and enum value catalogs. Both are guarded: they exist in H2 2.x, but an
      * introspection must not fail wholesale if a catalog table is missing.
      */
-    private Map<String, Map<String, Object>> readElementTypes(DDLSmithDBConnection connection, String schema) {
+    private Map<String, Map<String, Object>> readElementTypes(DDLsmithDBConnection connection, String schema) {
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
         try {
             for (Map<String, Object> row : query(connection,
@@ -612,7 +612,7 @@ public class H2Introspector extends AbstractIntrospector {
         return result;
     }
 
-    private Map<String, List<String>> readEnumValues(DDLSmithDBConnection connection, String schema) {
+    private Map<String, List<String>> readEnumValues(DDLsmithDBConnection connection, String schema) {
         Map<String, List<String>> result = new LinkedHashMap<>();
         try {
             for (Map<String, Object> row : query(connection,

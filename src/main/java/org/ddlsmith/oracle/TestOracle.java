@@ -5,7 +5,7 @@ import java.util.Optional;
 /**
  * An oracle decides whether the observed behaviour of a database is a defect.
  *
- * <p>DDLSmith's oracles are all black-box: they only use SQL that any client could send, and they
+ * <p>DDLsmith's oracles are all black-box: they only use SQL that any client could send, and they
  * compare what the engine reports about itself (catalog contents, error behaviour, query results)
  * against what the generated ER diagram says should be true.</p>
  */

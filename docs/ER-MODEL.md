@@ -1,7 +1,7 @@
-# The ER model in DDLSmith
+# The ER model in DDLsmith
 
-This document is the reference for the ER layer of DDLSmith: **what an (enhanced) ER diagram can
-contain**, **which of those features DDLSmith generates from a random graph**, **how each one maps
+This document is the reference for the ER layer of DDLsmith: **what an (enhanced) ER diagram can
+contain**, **which of those features DDLsmith generates from a random graph**, **how each one maps
 to the relational schema**, and **what is deliberately out of scope**.
 
 It exists because the tool's value depends on the ER layer being complete: the interesting DDL
@@ -13,7 +13,7 @@ is a feature the oracles can never test.
 
 | Document | What it is |
 | -------- | ---------- |
-| **this file** | what DDLSmith's ER layer does — the feature catalogue, the interpretation rules, the mapping rules |
+| **this file** | what DDLsmith's ER layer does — the feature catalogue, the interpretation rules, the mapping rules |
 | [ER-GAPS.md](ER-GAPS.md) | what it does **not** do — the audit of unreachable features and fidelity bugs, with evidence and a remediation order |
 | [ER-EER-FEATURE-CATALOGUE.md](ER-EER-FEATURE-CATALOGUE.md) | the external standard: every ER/EER feature with its textbook definition, Chen notation, mapping rule and SQL expressibility |
 | [DESIGN.md](DESIGN.md) | the pipeline end to end |
@@ -41,7 +41,7 @@ Where a cell is a gap, the bracketed id points at the entry in [ER-GAPS.md](ER-G
 
 ## 1. The feature catalogue
 
-The left half of each table is the standard ER/EER feature list; the right half is DDLSmith's status.
+The left half of each table is the standard ER/EER feature list; the right half is DDLsmith's status.
 "Reachable from a graph" means the generator can actually produce it — not merely that the model
 class can hold it. The *seen* column gives the observed frequency over 1 800 diagrams (6 generators ×
 300 seeds) unless stated otherwise.
@@ -277,7 +277,7 @@ the two absorbed links are **not** carried over to the outer relationship, unlik
 ## 3. ER → relational: the mapping rules
 
 Every decision that has a well-known alternative is randomized through `MappingOptions`, so all of
-them are exercised. The table lists the construct, the alternatives DDLSmith draws from, and the
+them are exercised. The table lists the construct, the alternatives DDLsmith draws from, and the
 classic rule each one implements.
 
 | ER construct | Strategies | Notes |
@@ -332,14 +332,14 @@ and §4 of that document says which to fix next.
 
 ### 5.1 Deliberate limitations
 
-These are places where DDLSmith does **not** model a feature, with the reason. They are limitations
+These are places where DDLsmith does **not** model a feature, with the reason. They are limitations
 of the *mapping* or of the *notation*, not gaps in the generator.
 
 **Exact (min,max) bounds.** The model supports min ∈ {0,1} (partial/total participation) and
 max ∈ {1,N} (the cardinality ratio) — the classic Chen notation, and exactly what relational DDL can
 express. Bounds such as "(2,5)" have no declarative SQL equivalent (they need assertions or
 triggers, and no mainstream engine implements `CREATE ASSERTION`), so generating them would produce
-schemas whose constraints DDLSmith cannot express, let alone verify.
+schemas whose constraints DDLsmith cannot express, let alone verify.
 
 **Multi-valued attributes of a relationship.** The correct mapping — a table keyed by the
 relationship's participants plus the value — is a different shape from the join-table mapping. The
@@ -372,7 +372,7 @@ column of the single-table strategy; the predicate itself is not generated, beca
 `CHECK` on the *subtype* table in the other strategies and would duplicate the discriminator
 semantics.
 
-**n-ary primary key.** DDLSmith keeps every foreign key in the join table's key when two or more
+**n-ary primary key.** DDLsmith keeps every foreign key in the join table's key when two or more
 participants have cardinality 1, where the textbook rule drops all of them [A24]. The reason is in
 §3; it is a deliberate deviation, not an oversight.
 

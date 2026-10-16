@@ -3,14 +3,14 @@ package org.ddlsmith.dbms;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.DatabaseProvider;
 import org.ddlsmith.Main;
 import org.ddlsmith.StateToReproduce;
 import org.ddlsmith.algorithm.Algorithms;
 import org.ddlsmith.algorithm.Pipeline;
 import org.ddlsmith.algorithm.TestingAlgorithm;
-import org.ddlsmith.common.log.DDLSmithLoggableFactory;
+import org.ddlsmith.common.log.DDLsmithLoggableFactory;
 import org.ddlsmith.common.log.LoggableFactory;
 import org.ddlsmith.ddl.Dialect;
 import org.ddlsmith.oracle.OracleFailure;
@@ -21,9 +21,9 @@ import org.ddlsmith.oracle.OracleFailure;
  * and writes one log file per failure with everything needed to reproduce it.
  */
 public abstract class AbstractJdbcProvider
-        implements DatabaseProvider<SimpleGlobalState<ConnectionOptions>, ConnectionOptions, DDLSmithDBConnection> {
+        implements DatabaseProvider<SimpleGlobalState<ConnectionOptions>, ConnectionOptions, DDLsmithDBConnection> {
 
-    private static final LoggableFactory LOGGABLE_FACTORY = new DDLSmithLoggableFactory();
+    private static final LoggableFactory LOGGABLE_FACTORY = new DDLsmithLoggableFactory();
 
     /** The name of the engine, which is also the dialect and introspector name. */
     protected abstract String engineName();
@@ -45,9 +45,9 @@ public abstract class AbstractJdbcProvider
     }
 
     @Override
-    public DDLSmithDBConnection createDatabase(SimpleGlobalState<ConnectionOptions> state) throws Exception {
+    public DDLsmithDBConnection createDatabase(SimpleGlobalState<ConnectionOptions> state) throws Exception {
         DatabaseConfig target = resolveTarget(state);
-        DDLSmithDBConnection connection;
+        DDLsmithDBConnection connection;
         try {
             connection = Targets.open(target, state.getDatabaseName(), state.getOptions().isKeepDatabases());
         } catch (java.sql.SQLException e) {
@@ -75,7 +75,7 @@ public abstract class AbstractJdbcProvider
         if (!state.getOptions().isKeepDatabases()) {
             // the client/server counterpart of deleting an embedded database's file: a second run with
             // the same --database-prefix must not find the first run's objects. Only the namespace
-            // derived above is named, so nothing DDLSmith did not create can be removed.
+            // derived above is named, so nothing DDLsmith did not create can be removed.
             for (String sql : dialect.dropNamespaceStatements(namespace)) {
                 runSetupQuietly(connection, sql, "drop-namespace");
             }
@@ -94,7 +94,7 @@ public abstract class AbstractJdbcProvider
      * engine that rejects one of them still gives the oracles a schema to compare, and the failure
      * surfaces there with the statement attached.
      */
-    private void runSetupQuietly(DDLSmithDBConnection connection, String sql, String purpose) {
+    private void runSetupQuietly(DDLsmithDBConnection connection, String sql, String purpose) {
         try {
             connection.executeStatement(sql);
         } catch (Exception e) {

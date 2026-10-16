@@ -15,7 +15,7 @@ import org.ddlsmith.oracle.OracleFailure;
  * would bury the defect in noise; normalizing the generated names away turns the occurrences into
  * evidence for one report.</p>
  *
- * <p>Normalization is deliberately moderate. It removes names DDLSmith invented (tables, columns,
+ * <p>Normalization is deliberately moderate. It removes names DDLsmith invented (tables, columns,
  * index names, sequence and view names, literal numbers) and keeps everything that describes the
  * defect: the failure kind, the oracle, and the words of the title.</p>
  */

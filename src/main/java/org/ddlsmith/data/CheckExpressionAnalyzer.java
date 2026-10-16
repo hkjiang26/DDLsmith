@@ -7,10 +7,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Understands the simple CHECK expressions that DDLSmith generates, so that the row generator can
+ * Understands the simple CHECK expressions that DDLsmith generates, so that the row generator can
  * produce a value that satisfies them and a value that violates them.
  *
- * <p>Only the shapes DDLSmith itself emits are supported: {@code col OP literal},
+ * <p>Only the shapes DDLsmith itself emits are supported: {@code col OP literal},
  * {@code col IN (v1, v2, ...)}, {@code col IS NOT NULL}, {@code col IS NULL} and conjunctions of
  * those. Anything else is reported as "not understood" and the caller skips the corresponding
  * check, instead of guessing and producing a false finding.</p>
@@ -125,7 +125,7 @@ public final class CheckExpressionAnalyzer {
     /**
      * Splits a top-level {@code OR} disjunction into its operands.
      *
-     * <p>The row generator needs this for the one disjunction DDLSmith itself produces: the
+     * <p>The row generator needs this for the one disjunction DDLsmith itself produces: the
      * union-membership check of a category, {@code col1 IS NOT NULL OR col2 IS NOT NULL}, which
      * {@link org.ddlsmith.mapping.impl.StandardERToRelationalMapper} writes for a union type with two or
      * more superclasses. That constraint is an <em>at-least-one</em> rule, so its operands may not be

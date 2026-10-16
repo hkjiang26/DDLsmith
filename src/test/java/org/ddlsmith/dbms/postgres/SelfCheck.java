@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -87,7 +87,7 @@ public final class SelfCheck {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== DDLSmith PostgreSQL self-check ===");
+        System.out.println("=== DDLsmith PostgreSQL self-check ===");
         PostgresDialect dialect = new PostgresDialect();
         PostgresTypeMapper typeMapper = new PostgresTypeMapper();
         PostgresIntrospector introspector = new PostgresIntrospector();
@@ -757,7 +757,7 @@ public final class SelfCheck {
             return;
         }
         checks++;
-        try (DDLSmithDBConnection dbConnection = new DDLSmithDBConnection(connection, LIVE_SCHEMA)) {
+        try (DDLsmithDBConnection dbConnection = new DDLsmithDBConnection(connection, LIVE_SCHEMA)) {
             System.out.println("  server: " + dbConnection.getDatabaseProductName() + " "
                     + dbConnection.getDatabaseVersion());
             // The namespace has to go on the search path. AbstractDialect renders a foreign key target

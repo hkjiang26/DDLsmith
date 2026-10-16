@@ -118,7 +118,7 @@ class ConformancePopulatorTest {
     @Test
     @DisplayName("a refusal that names only a column the plan writes stays a finding")
     void reportsAValueThePlanWritesOutOfRange() throws Exception {
-        // the control for the test above: 40000 in a plain SMALLINT column is DDLSmith writing a value
+        // the control for the test above: 40000 in a plain SMALLINT column is DDLsmith writing a value
         // the column cannot hold, and that is exactly what CONSTRAINT_TOO_STRICT has to report
         RelationalSchema schema = plainSmallintSchema();
         try (ConformanceTestSupport.Session session = h2(schema)) {

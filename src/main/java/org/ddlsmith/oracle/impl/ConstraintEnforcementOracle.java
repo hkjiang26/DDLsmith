@@ -130,9 +130,9 @@ public class ConstraintEnforcementOracle implements TestOracle {
             if (violatesAConstraintTheRowGeneratorDoesNotModel(rejected)) {
                 // The row generator models NOT NULL and CHECK, not uniqueness and not references, so a
                 // row it believes is valid can still repeat a unique value or point at a parent that
-                // does not exist. The engine is right to reject it: this is a limitation of DDLSmith's
+                // does not exist. The engine is right to reject it: this is a limitation of DDLsmith's
                 // row generation, and reporting it as "the engine is too strict" filed an engine
-                // defect for DDLSmith's own mistake (79 occurrences in one hour of SQLite runs).
+                // defect for DDLsmith's own mistake (79 occurrences in one hour of SQLite runs).
                 notes.add("[" + database.getName() + "] " + rejected.table.getName()
                         + " could not be populated: the engine rejected the row for a constraint the row "
                         + "generator does not model, so it is not a finding about the engine ("
@@ -143,7 +143,7 @@ public class ConstraintEnforcementOracle implements TestOracle {
                     "a row satisfying every declared constraint was rejected",
                     "Table " + rejected.table.getName() + " could not be populated.\n"
                             + "The row below satisfies every NOT NULL and CHECK constraint of the table as "
-                            + "evaluated by DDLSmith, yet the engine rejected it.\n"
+                            + "evaluated by DDLsmith, yet the engine rejected it.\n"
                             + "Row: " + rejected.row + "\n"
                             + "Observed: " + StatementRunner.describe(rejected.event) + "\n"
                             + "SQL: " + rejected.sql,
@@ -271,7 +271,7 @@ public class ConstraintEnforcementOracle implements TestOracle {
             }
         }
         if (!understood) {
-            return "DDLSmith does not understand the expression, so it cannot construct a violating row";
+            return "DDLsmith does not understand the expression, so it cannot construct a violating row";
         }
         return null;
     }

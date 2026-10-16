@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 import org.ddlsmith.introspection.SchemaIntrospector;
 
 /**
- * The catalog introspectors compiled into DDLSmith, one per engine.
+ * The catalog introspectors compiled into DDLsmith, one per engine.
  *
  * <p>Each engine module provides its dialect and its introspector together, because the two must
  * agree on how types are spelled: the dialect renders a canonical type and the introspector parses

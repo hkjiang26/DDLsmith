@@ -3,7 +3,7 @@ package org.ddlsmith.oracle;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.MainOptions;
 import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.ddl.Dialect;
@@ -179,7 +179,7 @@ public class OracleContext {
 
     /**
      * @return the record of everything executed, which the failure log writes out so that a finding
-     *         can be replayed with {@code --reproduce} without DDLSmith in the loop
+     *         can be replayed with {@code --reproduce} without DDLsmith in the loop
      */
     public org.ddlsmith.StateToReproduce getStateToReproduce() {
         return stateToReproduce;
@@ -267,7 +267,7 @@ public class OracleContext {
     /** A database on which the generated schema was materialized. */
     public static class DatabaseUnderTest {
         private final String name;
-        private final DDLSmithDBConnection connection;
+        private final DDLsmithDBConnection connection;
         private final Dialect dialect;
         private final SchemaIntrospector introspector;
         private final List<String> executedStatements = new ArrayList<>();
@@ -285,7 +285,7 @@ public class OracleContext {
          */
         private org.ddlsmith.Main.StateLogger stateLogger;
 
-        public DatabaseUnderTest(String name, DDLSmithDBConnection connection, Dialect dialect,
+        public DatabaseUnderTest(String name, DDLsmithDBConnection connection, Dialect dialect,
                 SchemaIntrospector introspector) {
             this.name = name;
             this.connection = connection;
@@ -315,7 +315,7 @@ public class OracleContext {
             return name;
         }
 
-        public DDLSmithDBConnection getConnection() {
+        public DDLsmithDBConnection getConnection() {
             return connection;
         }
 

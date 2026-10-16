@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.ForeignKey;
@@ -61,7 +61,7 @@ public class H2TestIntrospector extends AbstractIntrospector {
     }
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String namespace = schemaName == null || schemaName.isBlank() ? "PUBLIC" : schemaName;
         RelationalSchema schema = new RelationalSchema(namespace);
         Map<String, Table> byName = new LinkedHashMap<>();
@@ -90,7 +90,7 @@ public class H2TestIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ pieces */
 
-    private void readColumns(DDLSmithDBConnection connection, String namespace, Table table) throws SQLException {
+    private void readColumns(DDLsmithDBConnection connection, String namespace, Table table) throws SQLException {
         for (Map<String, Object> row : query(connection,
                 "SELECT COLUMN_NAME, ORDINAL_POSITION, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION,"
                         + " NUMERIC_SCALE, IS_NULLABLE, COLUMN_DEFAULT, IS_IDENTITY, IS_GENERATED,"
@@ -121,7 +121,7 @@ public class H2TestIntrospector extends AbstractIntrospector {
      * target is resolved through the unique constraint it references, which is how the standard
      * catalog spells it.
      */
-    private void readConstraints(DDLSmithDBConnection connection, String namespace, Table table,
+    private void readConstraints(DDLsmithDBConnection connection, String namespace, Table table,
             Map<String, Table> alreadyRead) throws SQLException {
         Map<String, String> typesByName = new LinkedHashMap<>();
         for (Map<String, Object> row : query(connection,
@@ -175,7 +175,7 @@ public class H2TestIntrospector extends AbstractIntrospector {
         }
     }
 
-    private void readForeignKey(DDLSmithDBConnection connection, String namespace, Table table, String name,
+    private void readForeignKey(DDLsmithDBConnection connection, String namespace, Table table, String name,
             List<String> columns, Map<String, Table> alreadyRead) throws SQLException {
         List<Map<String, Object>> references = query(connection,
                 "SELECT UNIQUE_CONSTRAINT_NAME, UPDATE_RULE, DELETE_RULE FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS"
@@ -211,7 +211,7 @@ public class H2TestIntrospector extends AbstractIntrospector {
         table.addForeignKey(foreignKey);
     }
 
-    private void readIndexes(DDLSmithDBConnection connection, String namespace, Table table) throws SQLException {
+    private void readIndexes(DDLsmithDBConnection connection, String namespace, Table table) throws SQLException {
         for (Map<String, Object> row : query(connection,
                 "SELECT INDEX_NAME, INDEX_TYPE_NAME FROM INFORMATION_SCHEMA.INDEXES"
                         + " WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND IS_GENERATED = FALSE ORDER BY INDEX_NAME",

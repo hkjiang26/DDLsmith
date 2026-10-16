@@ -13,16 +13,16 @@ import org.ddlsmith.common.query.QueryResult;
 /**
  * Wraps a JDBC connection to the database under test.
  *
- * <p>All statements issued by DDLSmith go through this class so that the exact executed SQL can be
+ * <p>All statements issued by DDLsmith go through this class so that the exact executed SQL can be
  * logged for reproduction.</p>
  */
-public class DDLSmithDBConnection implements AutoCloseable {
+public class DDLsmithDBConnection implements AutoCloseable {
 
     private final Connection connection;
     private final String databaseName;
     private boolean closed;
 
-    public DDLSmithDBConnection(Connection connection, String databaseName) {
+    public DDLsmithDBConnection(Connection connection, String databaseName) {
         this.connection = connection;
         this.databaseName = databaseName;
     }

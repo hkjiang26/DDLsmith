@@ -12,7 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -76,7 +76,7 @@ public final class SelfCheck {
     private static final DuckDbIntrospector INTROSPECTOR = new DuckDbIntrospector();
 
     public static void main(String[] args) throws Exception {
-        System.out.println("DDLSmith DuckDB self-check");
+        System.out.println("DDLsmith DuckDB self-check");
         try (Connection connection = DriverManager.getConnection("jdbc:duckdb:")) {
             System.out.println("engine: " + connection.getMetaData().getDatabaseProductName() + " "
                     + connection.getMetaData().getDatabaseProductVersion() + ", driver "
@@ -1137,7 +1137,7 @@ public final class SelfCheck {
         System.out.println("\n===== 4. SCHEMA ROUND TRIP =====");
         RelationalSchema intended = buildIntendedSchema();
         try (Connection connection = DriverManager.getConnection("jdbc:duckdb:")) {
-            DDLSmithDBConnection db = new DDLSmithDBConnection(connection, "selfcheck");
+            DDLsmithDBConnection db = new DDLsmithDBConnection(connection, "selfcheck");
             for (DDLStatement statement : renderSchema(intended)) {
                 for (String sql : DIALECT.renderAll(statement)) {
                     System.out.println("  sql> " + sql);
@@ -1280,7 +1280,7 @@ public final class SelfCheck {
     private static void checkAlterRoundTrip() throws Exception {
         System.out.println("\n===== 5. ALTER ROUND TRIP =====");
         try (Connection connection = DriverManager.getConnection("jdbc:duckdb:")) {
-            DDLSmithDBConnection db = new DDLSmithDBConnection(connection, "selfcheck");
+            DDLsmithDBConnection db = new DDLsmithDBConnection(connection, "selfcheck");
             db.executeStatement("CREATE SCHEMA alter_rt");
             Table table = new Table("alter_rt", "t_alter");
             table.addColumn(new Column("id", DataType.integer(), false));
@@ -1351,7 +1351,7 @@ public final class SelfCheck {
                     new PrimaryKey("added_pk", List.of("k"))), false, false));
 
             // DuckDB's parser rejects a referential action it cannot honour, and the dialect must
-            // still render it. Throwing here would turn the engine's answer into a DDLSmith crash and
+            // still render it. Throwing here would turn the engine's answer into a DDLsmith crash and
             // lose the finding the crash oracle exists to record; what may be asked for is decided by
             // the capability gate in SchemaAdapter, which does not declare FK_CASCADE. Both halves of
             // that contract are pinned here against the live engine, because this assertion used to
@@ -1401,7 +1401,7 @@ public final class SelfCheck {
      * Applies {@code action}, then its {@code inverse}, and requires the introspected schema to be
      * exactly what it was before.
      */
-    private static void checkInvertible(DDLSmithDBConnection db, RelationalSchema before, String tableName,
+    private static void checkInvertible(DDLsmithDBConnection db, RelationalSchema before, String tableName,
             AlterTableAction action) throws SQLException {
         String label = action.toString();
         String currentTable = tableName;

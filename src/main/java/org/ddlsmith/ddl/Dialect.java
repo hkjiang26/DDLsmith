@@ -51,7 +51,7 @@ public interface Dialect extends DDLVisitor<String> {
 
     /**
      * @return a reference to an object by name, prefixed with its namespace when the dialect uses
-     *         namespaces. Statements DDLSmith generates have to address the objects it created: an
+     *         namespaces. Statements DDLsmith generates have to address the objects it created: an
      *         unqualified reference resolves to the engine's default namespace, so the statement
      *         either fails or, worse, silently does nothing to the object it meant.
      */
@@ -80,13 +80,13 @@ public interface Dialect extends DDLVisitor<String> {
     }
 
     /**
-     * The collation DDLSmith declares on its character columns so that the engine compares strings the
+     * The collation DDLsmith declares on its character columns so that the engine compares strings the
      * way the canonical model does — code point by code point, with case, accents and trailing blanks
      * significant — or null when the engine's default comparison already is that comparison.
      *
      * <p>The model's equality is Java's: two values are the same value only when they are the same
      * characters. An engine whose default collation compares case- or accent-insensitively therefore
-     * implements something <em>other</em> than the schema DDLSmith asked for — a {@code UNIQUE}
+     * implements something <em>other</em> than the schema DDLsmith asked for — a {@code UNIQUE}
      * constraint, a {@code CHECK (a <> 'x')}, a {@code GROUP BY} or a join on such a column all mean
      * something else — and every oracle that reasons about equality reports the difference as the
      * engine's defect. Declaring the collation makes the engine's semantics and the model's the same
@@ -138,7 +138,7 @@ public interface Dialect extends DDLVisitor<String> {
      * <p>It is the client/server counterpart of deleting an embedded database's file before a run:
      * without it a second run with the same {@code --database-prefix} would find the objects of the
      * first one. It only ever names the namespace derived by
-     * {@link #schemaNameForGeneratedDatabase}, so nothing DDLSmith did not create can be removed.</p>
+     * {@link #schemaNameForGeneratedDatabase}, so nothing DDLsmith did not create can be removed.</p>
      */
     default List<String> dropNamespaceStatements(String schemaName) {
         return List.of();
@@ -181,7 +181,7 @@ public interface Dialect extends DDLVisitor<String> {
     }
 
     /**
-     * The namespace DDLSmith should actually put its generated objects in.
+     * The namespace DDLsmith should actually put its generated objects in.
      *
      * <p>Some engines cannot be asked for an arbitrary namespace even though they have schemas: an
      * engine that resolves an unqualified {@code REFERENCES <table>} through a search path, for
@@ -204,7 +204,7 @@ public interface Dialect extends DDLVisitor<String> {
     /**
      * The words that must not be used as an unquoted identifier in this engine.
      *
-     * <p>DDLSmith renders identifiers unquoted so that names stay case-insensitive and comparable
+     * <p>DDLsmith renders identifiers unquoted so that names stay case-insensitive and comparable
      * across engines. A generated name that happens to be a reserved word would therefore make the
      * engine reject an otherwise valid statement — a defect of the generator, not of the engine —
      * so {@link org.ddlsmith.ddl.gen.SchemaAdapter} renames such identifiers before rendering.</p>
@@ -252,7 +252,7 @@ public interface Dialect extends DDLVisitor<String> {
      *         <p>This is deliberately a separate question from {@link #identityRequiresKeyColumn},
      *         which the adapter uses to decide what to keep: keeping an identity the renderer will not
      *         emit makes the intended schema say IDENTITY while the catalog says it is not, and the
-     *         round-trip oracle then reports SQLite as losing a property DDLSmith never asked it to
+     *         round-trip oracle then reports SQLite as losing a property DDLsmith never asked it to
      *         store.</p>
      */
     default boolean identityRequiresPrimaryKey() {

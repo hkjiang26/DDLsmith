@@ -75,7 +75,7 @@ public class RandomDDLGenerator {
      * Tables that a view reads from. Dropping such a table, or renaming or dropping one of its
      * columns, would leave the view invalid: SQLite then refuses every later DDL statement with
      * "error in view ...: no such table", and the crash oracle reports the engine for a statement
-     * DDLSmith itself broke.
+     * DDLsmith itself broke.
      */
     private final Set<String> tablesReferencedByViews = new LinkedHashSet<>();
 
@@ -187,7 +187,7 @@ public class RandomDDLGenerator {
      * <p>The evolution algorithm executes a statement and then compares the engine's catalog with the
      * model. When the engine <em>rejects</em> the statement, the model has still been changed, so the
      * comparison reports the missing column, index or constraint as a divergence — a finding about
-     * DDLSmith rather than about the engine, and one that hides the real finding (the rejection
+     * DDLsmith rather than about the engine, and one that hides the real finding (the rejection
      * itself, which is the crash oracle's business). Rolling the model back keeps the two in step.</p>
      */
     public void discardLastStatement() {
@@ -1090,7 +1090,7 @@ public class RandomDDLGenerator {
      * not harmless: {@code CREATE INDEX IF NOT EXISTS <name>} on an engine that treats index names as
      * schema-global silently does nothing when the name is taken, so the in-memory model would claim an
      * index the database never created — and the round-trip oracle would then report a divergence that
-     * DDLSmith itself caused.</p>
+     * DDLsmith itself caused.</p>
      */
     private String uniqueName(String prefix, Set<String> taken) {
         String candidate = prefix + "_" + (counter++);

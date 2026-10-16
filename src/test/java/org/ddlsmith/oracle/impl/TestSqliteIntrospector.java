@@ -11,7 +11,7 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.ForeignKey;
@@ -24,7 +24,7 @@ import org.ddlsmith.introspection.AbstractIntrospector;
 import org.ddlsmith.introspection.SchemaIntrospector;
 
 /**
- * TEST SCAFFOLDING - not part of DDLSmith.
+ * TEST SCAFFOLDING - not part of DDLsmith.
  *
  * <p>A minimal SQLite introspector built on the {@code pragma_*} table-valued functions
  * ({@code pragma_table_info}, {@code pragma_foreign_key_list}, {@code pragma_index_list},
@@ -54,7 +54,7 @@ public class TestSqliteIntrospector extends AbstractIntrospector {
     }
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         RelationalSchema schema = new RelationalSchema("sqlite");
         for (Map<String, Object> row : query(connection,
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
@@ -68,7 +68,7 @@ public class TestSqliteIntrospector extends AbstractIntrospector {
         return schema;
     }
 
-    private Table introspectTable(DDLSmithDBConnection connection, String name) throws SQLException {
+    private Table introspectTable(DDLsmithDBConnection connection, String name) throws SQLException {
         Table table = new Table(name);
         Map<Integer, String> primaryKey = new TreeMap<>();
         for (Map<String, Object> row : query(connection, "SELECT * FROM pragma_table_info(?)", name)) {
@@ -119,7 +119,7 @@ public class TestSqliteIntrospector extends AbstractIntrospector {
         return table;
     }
 
-    private List<String> indexColumns(DDLSmithDBConnection connection, String indexName) throws SQLException {
+    private List<String> indexColumns(DDLsmithDBConnection connection, String indexName) throws SQLException {
         List<Map<String, Object>> rows = query(connection, "SELECT * FROM pragma_index_info(?)", indexName);
         rows.sort(java.util.Comparator.comparingInt(row -> getInt(row, "seqno", 0)));
         List<String> columns = new ArrayList<>();

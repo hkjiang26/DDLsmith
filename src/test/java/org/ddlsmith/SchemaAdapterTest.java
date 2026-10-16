@@ -59,7 +59,7 @@ class SchemaAdapterTest {
     /**
      * MySQL compares character columns case- and accent-insensitively by default, which is not how the
      * schema's own keys, checks and views mean to compare: the two-hour experiment's largest
-     * false-positive class was DDLSmith planning two values that differ only in case for one unique
+     * false-positive class was DDLsmith planning two values that differ only in case for one unique
      * column and MySQL refusing the second (report §3.2). The adapted schema therefore names the
      * collation, and the note says so once rather than once per column.
      */

@@ -18,7 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -92,7 +92,7 @@ public final class SelfCheck {
     }
 
     public static void main(String[] args) throws Exception {
-        System.out.println("DDLSmith H2 module self-check");
+        System.out.println("DDLsmith H2 module self-check");
         System.out.println("  H2 version  : " + h2Version());
         System.out.println("  dialect     : " + DIALECT.getName() + ", default schema "
                 + DIALECT.getDefaultSchemaName() + ", session setup " + DIALECT.getSessionSetupStatements());
@@ -295,7 +295,7 @@ public final class SelfCheck {
      */
     public static List<String> checkTypeRoundTrip() {
         List<String> failures = new ArrayList<>();
-        try (DDLSmithDBConnection connection = connect("ddlsmith_types")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_types")) {
             RelationalSchema intended = new RelationalSchema(SCHEMA);
             Table table = new Table(SCHEMA, "all_types");
             List<DataType> types = new ArrayList<>();
@@ -464,7 +464,7 @@ public final class SelfCheck {
 
     public static List<String> checkSchemaRoundTrip() {
         List<String> failures = new ArrayList<>();
-        try (DDLSmithDBConnection connection = connect("ddlsmith_schema")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_schema")) {
             RelationalSchema intended = selfCheckSchema();
             for (String sql : statementsFor(intended)) {
                 try {
@@ -556,7 +556,7 @@ public final class SelfCheck {
         limitations.add(new String[] {"r >= 0.0", "a literal written with a zero fraction"});
 
         String columns = " (a INT, b INT, c INT, d VARCHAR(10), n DECIMAL(12,2), r REAL,";
-        try (DDLSmithDBConnection connection = connect("ddlsmith_expr")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_expr")) {
             int index = 0;
             for (String[] entry : fixable) {
                 boolean mustSurvive = Boolean.parseBoolean(entry[1]);
@@ -595,7 +595,7 @@ public final class SelfCheck {
         return failures;
     }
 
-    private static String checkClause(DDLSmithDBConnection connection, String constraintName) throws SQLException {
+    private static String checkClause(DDLsmithDBConnection connection, String constraintName) throws SQLException {
         try (java.sql.PreparedStatement statement = connection.getConnection().prepareStatement(
                 "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS WHERE CONSTRAINT_NAME = ?")) {
             statement.setString(1, constraintName.toUpperCase(Locale.ROOT));
@@ -609,7 +609,7 @@ public final class SelfCheck {
 
     public static List<String> checkLiterals() {
         List<String> failures = new ArrayList<>();
-        try (DDLSmithDBConnection connection = connect("ddlsmith_literals")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_literals")) {
             connection.executeStatement("CREATE TABLE lit (d DATE, t TIME, ts TIMESTAMP, tz TIMESTAMP WITH TIME ZONE,"
                     + " b BINARY LARGE OBJECT, u UUID, j JSON, n DECIMAL(10,2), f BOOLEAN, s VARCHAR(20),"
                     + " i INTEGER, e ENUM('x','y'))");
@@ -696,7 +696,7 @@ public final class SelfCheck {
      */
     public static List<String> checkFeatureProbes() {
         List<String> failures = new ArrayList<>();
-        try (DDLSmithDBConnection connection = connect("ddlsmith_features")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_features")) {
             connection.executeStatement("CREATE TABLE probe (a INT NOT NULL, b INT, c VARCHAR(10))");
             connection.executeStatement("CREATE TABLE probe_u (a INT NOT NULL, b INT, CONSTRAINT uq_probe UNIQUE (a))");
 
@@ -887,7 +887,7 @@ public final class SelfCheck {
      * Constructs H2 parses but does not honour, accepts with a broken result, or cannot report back.
      * These are the probes that decide the non-obvious entries of the feature set.
      */
-    private static void semanticProbes(List<String> failures, DDLSmithDBConnection connection) throws SQLException {
+    private static void semanticProbes(List<String> failures, DDLsmithDBConnection connection) throws SQLException {
         /* --- UNIQUE_CONSTRAINT: created and introspected back --- */
         connection.executeStatement("CREATE TABLE uq_master (a INT, b INT, CONSTRAINT uq_master_ab UNIQUE (a, b))");
         Table uq = introspect(connection).getTable("uq_master");
@@ -1033,7 +1033,7 @@ public final class SelfCheck {
      *
      * @return whether H2 accepted the statement
      */
-    private static boolean syntaxProbe(List<String> failures, DDLSmithDBConnection connection, DDLFeature feature,
+    private static boolean syntaxProbe(List<String> failures, DDLsmithDBConnection connection, DDLFeature feature,
             boolean expected, String description, String sql) {
         boolean accepted = executeQuietly(connection, sql);
         record(failures, feature, accepted, description);
@@ -1055,7 +1055,7 @@ public final class SelfCheck {
     }
 
     /** @return true when the probe statement was rejected (i.e. the constraint was enforced) */
-    private static boolean enforcementProbe(List<String> failures, DDLSmithDBConnection connection,
+    private static boolean enforcementProbe(List<String> failures, DDLsmithDBConnection connection,
             String description, String probe) {
         boolean accepted = executeQuietly(connection, probe);
         System.out.println("        " + pad(description) + " rejected=" + !accepted + "   " + probe);
@@ -1075,7 +1075,7 @@ public final class SelfCheck {
      */
     public static List<String> checkAlterRoundTrip() {
         List<String> failures = new ArrayList<>();
-        try (DDLSmithDBConnection connection = connect("ddlsmith_alter")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_alter")) {
             RelationalSchema initial = alterSchema();
             for (String sql : statementsFor(initial)) {
                 connection.executeStatement(sql);
@@ -1151,13 +1151,13 @@ public final class SelfCheck {
     /** Applies actions, verifies the expected schema, then verifies that the inverse restores it. */
     private static final class AlterHarness {
 
-        private final DDLSmithDBConnection connection;
+        private final DDLsmithDBConnection connection;
         private final List<String> failures;
         private final RelationalSchema current;
         private String tableName;
         private int steps;
 
-        AlterHarness(DDLSmithDBConnection connection, List<String> failures, RelationalSchema current) {
+        AlterHarness(DDLsmithDBConnection connection, List<String> failures, RelationalSchema current) {
             this.connection = connection;
             this.failures = failures;
             this.current = current;
@@ -1305,25 +1305,25 @@ public final class SelfCheck {
     /* ================================================================== plumbing */
 
     private static String h2Version() {
-        try (DDLSmithDBConnection connection = connect("ddlsmith_version")) {
+        try (DDLsmithDBConnection connection = connect("ddlsmith_version")) {
             return connection.getDatabaseVersion();
         } catch (SQLException e) {
             return "<unavailable: " + e.getMessage() + ">";
         }
     }
 
-    static DDLSmithDBConnection connect(String database) throws SQLException {
-        return new DDLSmithDBConnection(DriverManager.getConnection(
+    static DDLsmithDBConnection connect(String database) throws SQLException {
+        return new DDLsmithDBConnection(DriverManager.getConnection(
                 "jdbc:h2:mem:" + database + ";DB_CLOSE_DELAY=-1", "sa", ""), "h2");
     }
 
-    private static void execute(DDLSmithDBConnection connection, DDLStatement statement) throws SQLException {
+    private static void execute(DDLsmithDBConnection connection, DDLStatement statement) throws SQLException {
         for (String sql : DIALECT.renderAll(statement)) {
             connection.executeStatement(sql);
         }
     }
 
-    static boolean executeQuietly(DDLSmithDBConnection connection, String sql) {
+    static boolean executeQuietly(DDLsmithDBConnection connection, String sql) {
         try {
             connection.executeStatement(sql);
             return true;
@@ -1333,7 +1333,7 @@ public final class SelfCheck {
     }
 
     /** @return null when the statement succeeded, otherwise the first line of the engine's message */
-    static String executeOrError(DDLSmithDBConnection connection, String sql) {
+    static String executeOrError(DDLsmithDBConnection connection, String sql) {
         try {
             connection.executeStatement(sql);
             return null;
@@ -1343,7 +1343,7 @@ public final class SelfCheck {
         }
     }
 
-    private static String scalar(DDLSmithDBConnection connection, String sql) {
+    private static String scalar(DDLsmithDBConnection connection, String sql) {
         try (Statement statement = connection.getConnection().createStatement();
                 ResultSet rs = statement.executeQuery(sql)) {
             return rs.next() ? rs.getString(1) : null;
@@ -1352,7 +1352,7 @@ public final class SelfCheck {
         }
     }
 
-    private static RelationalSchema introspect(DDLSmithDBConnection connection) throws SQLException {
+    private static RelationalSchema introspect(DDLsmithDBConnection connection) throws SQLException {
         return INTROSPECTOR.introspect(connection, SCHEMA);
     }
 

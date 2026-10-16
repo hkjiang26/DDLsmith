@@ -5,7 +5,7 @@ import java.util.List;
 import org.ddlsmith.DatabaseProvider;
 
 /**
- * Single place that lists the database providers compiled into DDLSmith.
+ * Single place that lists the database providers compiled into DDLsmith.
  *
  * <p>Kept separate from {@link org.ddlsmith.ProviderRegistry} so that the frozen core contract can
  * be compiled independently of the engine specific providers.</p>

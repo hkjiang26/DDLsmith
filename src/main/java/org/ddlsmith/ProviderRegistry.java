@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The list of database providers that DDLSmith can test. Providers are discovered statically so
+ * The list of database providers that DDLsmith can test. Providers are discovered statically so
  * that the shaded jar has no classpath scanning at startup.
  */
 public final class ProviderRegistry {

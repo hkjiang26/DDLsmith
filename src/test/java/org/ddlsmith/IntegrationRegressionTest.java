@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Regression tests for defects that were found by running DDLSmith end to end and that a component
+ * Regression tests for defects that were found by running DDLsmith end to end and that a component
  * test could not have caught, because each one needed a whole schema or a whole run.
  */
 class IntegrationRegressionTest {
@@ -172,7 +172,7 @@ class IntegrationRegressionTest {
         lines.add("-- graph schema : GraphSchema[...]");
         lines.add("-- schema       : tables=1 columns=1 pk=1");
         lines.add("");
-        lines.add("DDLSmith failure: schema mismatch on database0: MISSING_TABLE at t");
+        lines.add("DDLsmith failure: schema mismatch on database0: MISSING_TABLE at t");
         lines.add("Statement  : CREATE TABLE t (id INT)");
         Path log = directory.resolve("database0-failure-001-schema_mismatch.log");
         Files.write(log, lines);
@@ -185,7 +185,7 @@ class IntegrationRegressionTest {
 
     /**
      * The union-membership check of a category is a disjunction, and DuckDB reports the operands of a
-     * disjunction back parenthesised ({@code (a IS NOT NULL) OR (b IS NOT NULL)}) while DDLSmith
+     * disjunction back parenthesised ({@code (a IS NOT NULL) OR (b IS NOT NULL)}) while DDLsmith
      * declared it without parentheses. Comparing the two texts reported the constraint as lost on
      * every generated database that had a category. The tolerance must not go further than the
      * parenthesised predicate: a genuinely different connective is still a difference.

@@ -16,7 +16,7 @@ import org.ddlsmith.dbms.Dialects;
  * The {@code --print-ddl-only} mode: it runs the whole generation pipeline and prints the resulting
  * DDL script without connecting to any database.
  *
- * <p>This makes DDLSmith usable as a DDL generator on its own — for building corpora, for reviewing
+ * <p>This makes DDLsmith usable as a DDL generator on its own — for building corpora, for reviewing
  * what the tool would send to an engine, and for inspecting the graph → ER → relational mapping
  * chain end to end.</p>
  */
@@ -33,7 +33,7 @@ public final class DDLOnly {
             dialect = org.ddlsmith.ddl.FeatureOverriddenDialect.of(dialect, options.getExtraDdlFeatures(),
                     options.getDisabledDdlFeatures());
         } catch (IllegalArgumentException e) {
-            System.err.println("DDLSmith: " + e.getMessage());
+            System.err.println("DDLsmith: " + e.getMessage());
             return 1;
         }
         // With --databases-per-graph K every slot of the group is printed: this is the mode that turns
@@ -66,12 +66,12 @@ public final class DDLOnly {
             generated = generateFor(dialect, options, slot);
             adapted = generated.adaptedSchema;
         } catch (RuntimeException e) {
-            System.err.println("DDLSmith could not generate a schema: " + e);
+            System.err.println("DDLsmith could not generate a schema: " + e);
             e.printStackTrace();
             return options.getErrorExitCode();
         }
 
-        System.out.println("-- DDLSmith generated DDL");
+        System.out.println("-- DDLsmith generated DDL");
         System.out.println("-- dialect  : " + dialect.getName());
         System.out.println("-- generator: " + options.getGraphGenerator() + " (available: " + GraphGenerators.names()
                 + ")");
@@ -126,7 +126,7 @@ public final class DDLOnly {
     }
 
     /** A global state with no connection, used by the DDL-only mode. */
-    private static final class HeadlessState extends GlobalState<org.ddlsmith.dbms.ConnectionOptions, DDLSmithDBConnection> {
+    private static final class HeadlessState extends GlobalState<org.ddlsmith.dbms.ConnectionOptions, DDLsmithDBConnection> {
         HeadlessState(MainOptions options) {
             setMainOptions(options);
             setState(new StateToReproduce("ddl-only"));

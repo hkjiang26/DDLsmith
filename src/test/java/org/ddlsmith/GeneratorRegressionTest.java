@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Test;
  * added column that carried a constraint the engine refuses, and a model that kept a statement the
  * engine had rejected.
  *
- * <p>Each of them made DDLSmith report a divergence the engine had not caused — the most expensive
+ * <p>Each of them made DDLsmith report a divergence the engine had not caused — the most expensive
  * kind of defect a testing tool can have.</p>
  */
 class GeneratorRegressionTest {
@@ -46,7 +46,7 @@ class GeneratorRegressionTest {
      * TRUNCATE} statements named their objects without the schema, so they addressed H2's default
      * namespace instead of the one the tables live in. On H2 the view then failed to be created, the
      * drop silently did nothing, and the truncate was rejected — and the crash oracle blamed the
-     * engine for a statement DDLSmith had rendered wrongly.
+     * engine for a statement DDLsmith had rendered wrongly.
      */
     @Test
     @DisplayName("statements that address generated objects name their schema")
@@ -87,7 +87,7 @@ class GeneratorRegressionTest {
      * the key it references, and a table that references <em>that</em> column is a step further down
      * the chain. A single alignment pass left the last link at {@code BIGINT} while the column it
      * pointed at had become {@code INTEGER}, and DuckDB refused the table with "incompatible types
-     * between column id_2 (INTEGER) and column t_6_id_2 (BIGINT)" — a schema DDLSmith could have
+     * between column id_2 (INTEGER) and column t_6_id_2 (BIGINT)" — a schema DDLsmith could have
      * expressed correctly.
      */
     @Test
@@ -165,7 +165,7 @@ class GeneratorRegressionTest {
     /**
      * The evolution algorithm executes a statement and then compares the catalog with the model. When
      * the engine <em>rejected</em> the statement, the model had still been changed, so every rejected
-     * statement became a divergence — which is a finding about DDLSmith, and one that hides the
+     * statement became a divergence — which is a finding about DDLsmith, and one that hides the
      * rejection itself.
      */
     @Test
@@ -237,7 +237,7 @@ class GeneratorRegressionTest {
 
     /**
      * Three rules the hour-long evolution runs showed to be missing, each of which made the crash
-     * oracle report an engine defect that was DDLSmith's:
+     * oracle report an engine defect that was DDLsmith's:
      *
      * <ul>
      *   <li>a view reads from a table, so the table and its columns must stay: SQLite otherwise

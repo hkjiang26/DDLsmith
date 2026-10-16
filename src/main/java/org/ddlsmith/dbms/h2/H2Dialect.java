@@ -221,7 +221,7 @@ public class H2Dialect extends AbstractDialect {
                 "CREATE INDEX i ON t(a) INCLUDE (b) is a syntax error");
         map.put(DDLFeature.INDEX_DESCENDING,
                 "H2 does accept 'CREATE INDEX i ON t(a DESC)' and reports ORDERING_SPECIFICATION, but"
-                        + " Index has no ordering field, so DDLSmith cannot express a descending index;"
+                        + " Index has no ordering field, so DDLsmith cannot express a descending index;"
                         + " declaring it would tempt a generator to encode the direction in the column name,"
                         + " which INDEX_COLUMNS would not report back");
         /* views */

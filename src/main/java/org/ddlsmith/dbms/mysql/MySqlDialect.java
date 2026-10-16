@@ -31,7 +31,7 @@ import org.ddlsmith.ddl.alter.SetNotNull;
  * The MySQL 8.0 dialect.
  *
  * <h2>Namespaces</h2>
- * <p>MySQL's "schema" is a database, and DDLSmith treats the connection's database as the
+ * <p>MySQL's "schema" is a database, and DDLsmith treats the connection's database as the
  * namespace, so {@code CREATE_SCHEMA}, {@code DROP_SCHEMA} and {@code QUALIFIED_NAMES} are absent
  * from {@link #getFeatures()} and {@link #getDefaultSchemaName()} returns {@code null}.
  * Identifiers are folded to lower case, because MySQL's table name case sensitivity depends on the
@@ -124,7 +124,7 @@ public class MySqlDialect extends AbstractDialect {
      *
      * <p>MySQL's server default is {@code utf8mb4_0900_ai_ci}: case- and accent-<em>insensitive</em>.
      * The model's equality is Java's, so under that collation the schema MySQL implements is not the
-     * schema DDLSmith asked for — a {@code UNIQUE} column accepts {@code 'HF'} and then rejects
+     * schema DDLsmith asked for — a {@code UNIQUE} column accepts {@code 'HF'} and then rejects
      * {@code 'hf'} with {@code 1062}, {@code CHECK (a <> 'x')} rejects {@code 'X'} with {@code 3819},
      * and {@code ENUM('a','A')} is refused at {@code CREATE TABLE} time with {@code 1291}
      * ("duplicated value"). All three were measured on 26.7.0 while reviewing the two-hour
@@ -430,7 +430,7 @@ public class MySqlDialect extends AbstractDialect {
      * {@inheritDoc}
      *
      * <p>Returns {@link #NO_SCHEMA_SUPPORT}: MySQL's {@code CREATE SCHEMA} creates a database, which
-     * is not what DDLSmith models. Gated by the absent {@code CREATE_SCHEMA} feature.</p>
+     * is not what DDLsmith models. Gated by the absent {@code CREATE_SCHEMA} feature.</p>
      */
     @Override
     public String visit(org.ddlsmith.ddl.CreateSchema statement) {
@@ -711,7 +711,7 @@ public class MySqlDialect extends AbstractDialect {
          * </ul>
          * <p>When the action carries no {@link ConstraintDefinition} the kind is inferred from the
          * constraint name prefix ({@code pk_}, {@code fk_}, {@code uq_}, {@code ck_}, ...), which is
-         * how DDLSmith names generated constraints; the fallback is {@code DROP FOREIGN KEY}. MySQL
+         * how DDLsmith names generated constraints; the fallback is {@code DROP FOREIGN KEY}. MySQL
          * has no {@code IF EXISTS} clause here, so {@code action.isIfExists()} is ignored.</p>
          */
         @Override

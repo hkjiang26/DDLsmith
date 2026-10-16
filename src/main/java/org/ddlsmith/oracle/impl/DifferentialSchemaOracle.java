@@ -119,7 +119,7 @@ public class DifferentialSchemaOracle implements TestOracle {
      * schema round trip oracle ({@link OracleSupport#isDefaultReferentialActionSpelling}):
      *
      * <ul>
-     *   <li><b>the spelling of "no referential action"</b>: DDLSmith renders an {@code ON DELETE} /
+     *   <li><b>the spelling of "no referential action"</b>: DDLsmith renders an {@code ON DELETE} /
      *       {@code ON UPDATE} clause only for an action other than {@code NO_ACTION}, so the engines
      *       report their own default back &mdash; H2 says {@code RESTRICT}, SQLite and PostgreSQL say
      *       {@code NO ACTION}. The two spellings describe the same rule, so reporting them would flag

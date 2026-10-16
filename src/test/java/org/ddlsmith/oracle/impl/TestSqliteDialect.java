@@ -9,7 +9,7 @@ import org.ddlsmith.ddl.DDLFeature;
 import org.ddlsmith.ddl.DDLFeatureSet;
 
 /**
- * TEST SCAFFOLDING - not part of DDLSmith.
+ * TEST SCAFFOLDING - not part of DDLsmith.
  *
  * <p>A minimal SQLite dialect used by {@link ConstraintOracleSelfCheck} so that the oracles can be
  * exercised against a real in-memory SQLite database without depending on the DBMS packages that

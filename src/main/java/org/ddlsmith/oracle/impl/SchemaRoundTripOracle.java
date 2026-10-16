@@ -20,7 +20,7 @@ import org.ddlsmith.oracle.OracleFailure.FailureKind;
 import org.ddlsmith.oracle.TestOracle;
 
 /**
- * Compares the schema DDLSmith intended to create with the schema the engine reports afterwards.
+ * Compares the schema DDLsmith intended to create with the schema the engine reports afterwards.
  *
  * <p>For every database the oracle introspects the catalog, erases from the intended schema
  * everything that cannot be observed on that database, and computes the remaining differences with
@@ -55,7 +55,7 @@ import org.ddlsmith.oracle.TestOracle;
  * </ul>
  *
  * <p>Table level differences are never filtered: a table that is absent, or a table the engine
- * created although DDLSmith did not ask for it ({@code UNEXPECTED_TABLE}), is always a finding.</p>
+ * created although DDLsmith did not ask for it ({@code UNEXPECTED_TABLE}), is always a finding.</p>
  *
  * <p>At most one failure is reported per database (the first database with a mismatch wins), and the
  * report is bounded by {@link OracleSupport#MAX_DETAIL_CHARS}.</p>
@@ -72,7 +72,7 @@ public class SchemaRoundTripOracle implements TestOracle {
 
     @Override
     public String getDescription() {
-        return "compares the introspected schema of every database with the schema DDLSmith intended";
+        return "compares the introspected schema of every database with the schema DDLsmith intended";
     }
 
     @Override
@@ -144,7 +144,7 @@ public class SchemaRoundTripOracle implements TestOracle {
             return "missing-index: dialect does not support CREATE_INDEX";
         }
 
-        // (2) The dialect cannot express a CHECK constraint in any of the three ways DDLSmith knows
+        // (2) The dialect cannot express a CHECK constraint in any of the three ways DDLsmith knows
         //     (named, inline, ALTER TABLE ADD), and the catalog cannot report checks either. Both
         //     halves are required: if the engine can report checks but the dialect cannot create them,
         //     the absence is explained by the dialect, and if the dialect can create them the absence
@@ -234,7 +234,7 @@ public class SchemaRoundTripOracle implements TestOracle {
             return "foreign-key-actions: introspector cannot report referential actions";
         }
 
-        // (14) NO_ACTION is not an action DDLSmith ever renders: a dialect emits ON DELETE/ON UPDATE
+        // (14) NO_ACTION is not an action DDLsmith ever renders: a dialect emits ON DELETE/ON UPDATE
         //      only when the action differs from NO_ACTION (see the dialect's renderReferentialActions),
         //      so a NO_ACTION on the intended side means "no clause was written at all" and what the
         //      engine reports back is its own default spelling of "leave the parent row alone" - H2
@@ -339,7 +339,7 @@ public class SchemaRoundTripOracle implements TestOracle {
             String schemaName) {
         SchemaDifference first = outcome.kept.get(0);
         StringBuilder details = new StringBuilder();
-        details.append("The schema the engine reports differs from the schema DDLSmith intended to create.\n\n");
+        details.append("The schema the engine reports differs from the schema DDLsmith intended to create.\n\n");
         details.append("Database   : ").append(database.getFullName()).append('\n');
         details.append("Dialect    : ").append(database.getDialect().getName()).append('\n');
         details.append("Schema     : ").append(schemaName == null ? "<engine default>" : schemaName).append('\n');

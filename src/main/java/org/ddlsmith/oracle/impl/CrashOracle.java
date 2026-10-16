@@ -17,7 +17,7 @@ import org.ddlsmith.oracle.TestOracle;
 /**
  * Reports statements that failed even though the engine should have accepted them.
  *
- * <p>DDLSmith only generates DDL that the target dialect declares as supported, so a rejected
+ * <p>DDLsmith only generates DDL that the target dialect declares as supported, so a rejected
  * {@code CREATE TABLE}, {@code ALTER TABLE} or {@code CREATE INDEX} is a defect of the engine (or of
  * its declared feature set). Statements that are <em>supposed</em> to fail &mdash; the constraint
  * probes of the other oracles &mdash; are recognized by their purpose and are not reported.</p>
@@ -106,9 +106,9 @@ public class CrashOracle implements TestOracle {
             return false;
         }
         if (isDataStatement(event)) {
-            // A row DDLSmith generated is not part of the DDL contract this oracle asks about: an
+            // A row DDLsmith generated is not part of the DDL contract this oracle asks about: an
             // INSERT rejected for a unique or foreign key violation means the row generator did not
-            // respect a constraint of its own schema, which is DDLSmith's business and is reported by
+            // respect a constraint of its own schema, which is DDLsmith's business and is reported by
             // the data oracles as "the table could not be populated". Blaming the engine for it
             // produced reports like "engine rejected seed-insert" at high confidence — the most
             // damaging kind of false finding this tool can file.
@@ -122,9 +122,9 @@ public class CrashOracle implements TestOracle {
         }
         if (brokeAModeledLimit(context, event)) {
             // The generator asked for something one of the engine's documented limits forbids, and
-            // EngineTraits is where DDLSmith keeps those limits. Reporting it here accuses the engine of
+            // EngineTraits is where DDLsmith keeps those limits. Reporting it here accuses the engine of
             // rejecting a construct it never claimed to accept, at high confidence: on the MySQL
-            // campaign that produced twenty such reports, every one of them for a key DDLSmith had built
+            // campaign that produced twenty such reports, every one of them for a key DDLsmith had built
             // itself by widening TEXT key columns to VARCHAR(255) until four of them needed 4080 bytes.
             // The generator has to respect the limit rather than the engine being told about it — and
             // when it does not, the consequence is not silent, because the object never appears: the
@@ -135,7 +135,7 @@ public class CrashOracle implements TestOracle {
         return !isUndeclaredFeatureFailure(context, event);
     }
 
-    /** @return true when the engine refused the statement by naming one of the limits DDLSmith models */
+    /** @return true when the engine refused the statement by naming one of the limits DDLsmith models */
     private static boolean brokeAModeledLimit(OracleContext context, ExecutionEvent event) {
         DatabaseUnderTest database = OracleSupport.database(context, event.getDatabaseName());
         return database != null && org.ddlsmith.ddl.gen.EngineTraits.isModeledLimitFailure(

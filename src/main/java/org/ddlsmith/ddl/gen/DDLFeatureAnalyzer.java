@@ -43,7 +43,7 @@ import org.ddlsmith.ddl.alter.SetNotNull;
 /**
  * Determines which {@link DDLFeature}s a generated statement relies on.
  *
- * <p>This is what lets DDLSmith attribute a failure to a capability instead of just reporting "the
+ * <p>This is what lets DDLsmith attribute a failure to a capability instead of just reporting "the
  * engine rejected some SQL": when the engine rejects a statement that uses a feature the dialect
  * declared as supported, that is an engine defect; when the feature was not declared, the generator
  * should never have emitted the statement at all, and the report says so.</p>

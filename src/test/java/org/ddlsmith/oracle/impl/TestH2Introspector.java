@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -22,7 +22,7 @@ import org.ddlsmith.common.schema.UniqueConstraint;
 import org.ddlsmith.introspection.AbstractIntrospector;
 
 /**
- * TEST SCAFFOLDING - not part of DDLSmith.
+ * TEST SCAFFOLDING - not part of DDLsmith.
  *
  * <p>A minimal H2 introspector reading {@code INFORMATION_SCHEMA}: tables, columns, table
  * constraints, key column usage, check constraints and referential constraints (for the referential
@@ -48,7 +48,7 @@ public class TestH2Introspector extends AbstractIntrospector {
     }
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String schema = schemaName == null ? "PUBLIC" : schemaName;
         RelationalSchema result = new RelationalSchema(schema);
         for (Map<String, Object> row : query(connection,
@@ -63,7 +63,7 @@ public class TestH2Introspector extends AbstractIntrospector {
         return result;
     }
 
-    private Table introspectTable(DDLSmithDBConnection connection, String schema, String name) throws SQLException {
+    private Table introspectTable(DDLsmithDBConnection connection, String schema, String name) throws SQLException {
         Table table = new Table(name);
         for (Map<String, Object> row : query(connection,
                 "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, "
@@ -120,7 +120,7 @@ public class TestH2Introspector extends AbstractIntrospector {
         return table;
     }
 
-    private String checkClause(DDLSmithDBConnection connection, String schema, String constraintName)
+    private String checkClause(DDLsmithDBConnection connection, String schema, String constraintName)
             throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ? AND "
@@ -129,7 +129,7 @@ public class TestH2Introspector extends AbstractIntrospector {
         return rows.isEmpty() ? null : cleanDefault(getString(rows.get(0), "check_clause"));
     }
 
-    private void addForeignKey(DDLSmithDBConnection connection, String schema, Table table, String constraintName,
+    private void addForeignKey(DDLsmithDBConnection connection, String schema, Table table, String constraintName,
             List<String> childColumns) throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT UPDATE_RULE, DELETE_RULE, UNIQUE_CONSTRAINT_NAME FROM "

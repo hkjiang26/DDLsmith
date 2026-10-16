@@ -10,13 +10,13 @@ import org.ddlsmith.ermodel.ERDiagram;
 import org.ddlsmith.graph.GraphModel;
 
 /**
- * Per-thread state of a DDLSmith run: the connection to the database under test, the generated
+ * Per-thread state of a DDLsmith run: the connection to the database under test, the generated
  * graph, the ER diagram derived from it, the intended relational schema, and the execution log.
  *
- * <p>Compared to GDsmith this drops the schema type parameter: DDLSmith always describes the
+ * <p>Compared to GDsmith this drops the schema type parameter: DDLsmith always describes the
  * intended schema with the single {@link RelationalSchema} intermediate representation.</p>
  */
-public abstract class GlobalState<O extends DBMSSpecificOptions<?>, C extends DDLSmithDBConnection> {
+public abstract class GlobalState<O extends DBMSSpecificOptions<?>, C extends DDLsmithDBConnection> {
 
     private Randomly randomly;
     private MainOptions options;

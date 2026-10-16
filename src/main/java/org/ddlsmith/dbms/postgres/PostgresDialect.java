@@ -28,7 +28,7 @@ import org.ddlsmith.ddl.alter.ConstraintDefinition;
  * <ul>
  *   <li>{@code TYPE_ENUM} - a PostgreSQL enum is a schema object ({@code CREATE TYPE ... AS ENUM}),
  *       which the DDL AST cannot express; {@link PostgresTypeMapper} renders an enum as
- *       {@code TEXT} instead. {@code ENUM_AS_CHECK} is absent for the same reason: DDLSmith models
+ *       {@code TEXT} instead. {@code ENUM_AS_CHECK} is absent for the same reason: DDLsmith models
  *       enums as a type, not as a CHECK constraint.</li>
  *   <li>{@code GENERATED_VIRTUAL} - PostgreSQL only has stored generated columns.</li>
  *   <li>{@code INLINE_FOREIGN_KEY}, {@code COLUMN_TYPE_UNSIGNED}, {@code FK_ENFORCED_BY_PRAGMA} -

@@ -1,4 +1,4 @@
-# DDLSmith build helper: always builds with JDK 17 regardless of the machine default JAVA_HOME.
+# DDLsmith build helper: always builds with JDK 17 regardless of the machine default JAVA_HOME.
 param(
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $MavenArgs = @('clean', 'package')

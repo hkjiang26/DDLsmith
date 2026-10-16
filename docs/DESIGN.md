@@ -1,4 +1,4 @@
-# DDLSmith design notes
+# DDLsmith design notes
 
 This document explains the three steps that turn a random graph into a relational schema, and the
 semantics the oracles rely on. It is the reference for anyone extending the tool.
@@ -175,12 +175,12 @@ mapped schema → adapt to dialect → intended schema → render → execute �
 
 If adaptation happened while *rendering* instead, the intended schema would still contain constructs
 that were never sent to the engine, and the round-trip oracle would report differences that are
-DDLSmith's fault rather than the engine's. Adapting first means **the intended schema is by
+DDLsmith's fault rather than the engine's. Adapting first means **the intended schema is by
 construction exactly what was asked of the engine**, so any difference is real.
 
 ### 3.2 Feature gating
 
-`DDLFeature` enumerates every capability DDLSmith can exercise. Each dialect declares the set its
+`DDLFeature` enumerates every capability DDLsmith can exercise. Each dialect declares the set its
 engine really supports — derived from empirical probes, not documentation, because documentation
 lags reality (DuckDB's foreign key enforcement, MySQL's `CHECK` enforcement before 8.0.16, SQLite's
 foreign keys being off by default).
@@ -216,7 +216,7 @@ generator that occasionally lies about the schema, which is worse than one that 
 less.
 
 Four further rules exist because each of them was, before it was added, a source of findings that
-were DDLSmith's fault rather than the engine's:
+were DDLsmith's fault rather than the engine's:
 
 * **Every statement names the namespace of the object it addresses.** An unqualified
   `DROP TABLE t_new_1`, `TRUNCATE TABLE t_1` or `CREATE VIEW v AS SELECT … FROM t_3` addresses the
@@ -262,7 +262,7 @@ declares what each engine's catalog can report.
 
 Three tolerance rules deserve their own note, because each was added after a real false positive:
 
-* **An index is identified by what it enforces, uniqueness included.** DDLSmith can generate both a
+* **An index is identified by what it enforces, uniqueness included.** DDLsmith can generate both a
   plain and a unique index over the same column list, so a lookup keyed on columns alone would let
   one overwrite the other and report a spurious uniqueness mismatch.
 * **A one-element `IN` list is an equality.** H2 rewrites `dtype IN ('E3')` into `dtype = 'E3'`, which
@@ -352,7 +352,7 @@ The chain that makes its expectation trustworthy is the one the project already 
 4. every expectation is computed from the rows the engine **accepted**, so a rejected row is reported
    once and never becomes a second, phantom finding about data the database could not store.
 
-A disagreement is therefore either the engine not implementing what it accepted, or DDLSmith being
+A disagreement is therefore either the engine not implementing what it accepted, or DDLsmith being
 wrong about what it asked for — and the second case is what the census of a run measures, exactly as
 it does for the built-in oracles. The measured census (300 databases, about 6 000 semantic queries,
 0 findings, and the gaps it announces instead of guessing) is
@@ -388,7 +388,7 @@ definition.
   that point is a note, not a finding: the parent row was rejected earlier, or the instance contains a
   reference cycle no insertion order can satisfy;
 * a rejection on a key the engine computes (a unique constraint over a generated column) is a note for
-  the same reason: DDLSmith never inserts that value and cannot predict it;
+  the same reason: DDLsmith never inserts that value and cannot predict it;
 * rows are fitted to their columns before they are planned — an integral key that does not fit its
   `SMALLINT` column is replaced by the row's deterministic in-range key — because otherwise H2 and
   DuckDB rightly refuse a row SQLite accepts, and the oracle would report the engine for it;
@@ -451,9 +451,9 @@ Every oracle has explicit guards, documented in its source:
   instead of reporting a non-existent defect;
 * the round-trip oracle filters differences that the dialect's own feature set makes impossible to
   observe, always by checking `DDLFeatureSet`, never by hard-coding engine names;
-* the crash oracle reports nothing about a **row** DDLSmith generated. A rejected `INSERT` means the
+* the crash oracle reports nothing about a **row** DDLsmith generated. A rejected `INSERT` means the
   row generator did not respect a constraint of its own schema (it models `NOT NULL` and `CHECK`, not
-  uniqueness and not references), which is DDLSmith's mistake and is reported by the data oracles as
+  uniqueness and not references), which is DDLsmith's mistake and is reported by the data oracles as
   "the table could not be populated". Filing it as `UNEXPECTED_ERROR` produced reports titled
   "engine rejected seed-insert" at high confidence — an engine defect invented out of the tool's own
   row generation;

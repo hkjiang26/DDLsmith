@@ -1,6 +1,6 @@
 # 分层采样验收（`--databases-per-graph`）
 
-本报告记录把 DDLSmith 从"一库一图"改成"一图多库"两级采样后的验证结果。
+本报告记录把 DDLsmith 从"一库一图"改成"一图多库"两级采样后的验证结果。
 
 | | |
 | --- | --- |
@@ -24,7 +24,7 @@
 
 ## 2. K=1 位级兼容（判据 1）
 
-用旧构建（`target/DDLSmith.jar`，改动前）与新类（`target/classes`，改动后）各跑一次
+用旧构建（`target/DDLsmith.jar`，改动前）与新类（`target/classes`，改动后）各跑一次
 `--print-ddl-only`，比较整份输出：
 
 | 种子 | 旧构建 | 新构建 | 结果 |
@@ -184,23 +184,23 @@ K=8 slot 0（默认口径，图完全相同）:          ER: relationships=7(1:1
 
 ```shell
 # 组内共享一个图的 4 个解读（H2，只打印 DDL）
-java -jar target/DDLSmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 4
+java -jar target/DDLsmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 4
 
 # 重放其中第 3 槽
-java -jar target/DDLSmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 4 --input-slot 3
+java -jar target/DDLsmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 4 --input-slot 3
 
 # 实机跑两组（SQLite），摘要里看 "generated graphs" 与 "distinct ER diagrams"
-java -jar target/DDLSmith.jar sqlite --algorithm constraints --num-tries 8 --databases-per-graph 4 \
+java -jar target/DDLsmith.jar sqlite --algorithm constraints --num-tries 8 --databases-per-graph 4 \
     --random-seed 1 --insert-rows 3 --keep-databases --database-prefix exp
 
 # 同预算对照战役（各 500 库）：世界模式要显式写 1，分层采样写 25
-java -jar target/DDLSmith.jar sqlite --algorithm constraints --num-tries 500 --databases-per-graph 1 \
+java -jar target/DDLsmith.jar sqlite --algorithm constraints --num-tries 500 --databases-per-graph 1 \
     --random-seed 1000 --insert-rows 3 --bug-dir off
-java -jar target/DDLSmith.jar sqlite --algorithm constraints --num-tries 500 --databases-per-graph 25 \
+java -jar target/DDLsmith.jar sqlite --algorithm constraints --num-tries 500 --databases-per-graph 25 \
     --random-seed 1000 --insert-rows 3 --bug-dir off
 
 # 复现改动前（默认 K=1 时代）记录的种子
-java -jar target/DDLSmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 1
+java -jar target/DDLsmith.jar h2 --print-ddl-only --random-seed 7 --databases-per-graph 1
 
 # 端到端检查（含扩张段）
 java -cp "target/classes;target/test-classes;<deps>" org.ddlsmith.EndToEndCheck 20240101 2

@@ -14,7 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.GlobalState;
 import org.ddlsmith.MainOptions;
 import org.ddlsmith.Randomly;
@@ -49,7 +49,7 @@ class ExpansionTest {
     private static final long SEED = 4242L;
 
     /** A global state with no connection, mirroring the headless state of the DDL-only mode. */
-    private static final class HeadlessState extends GlobalState<ConnectionOptions, DDLSmithDBConnection> {
+    private static final class HeadlessState extends GlobalState<ConnectionOptions, DDLsmithDBConnection> {
         HeadlessState(MainOptions options, int slot) {
             setMainOptions(options);
             StateToReproduce state = new StateToReproduce("expansion-test");

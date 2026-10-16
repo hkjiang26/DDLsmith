@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * A dialect-independent SQL data type.
  *
- * <p>DDLSmith generates schemas in this canonical form; each {@link org.ddlsmith.ddl.Dialect}
+ * <p>DDLsmith generates schemas in this canonical form; each {@link org.ddlsmith.ddl.Dialect}
  * renders it to the syntax of its engine, and each introspector maps the engine's reported type
  * back into this form so that the intended and the actual schema can be compared.</p>
  */

@@ -205,7 +205,7 @@ public class SqliteTypeMapper implements TypeMapper {
     /**
      * @return the type a column of an unknown declared type behaves as, following SQLite's
      *         <a href="https://sqlite.org/datatype3.html#determination_of_column_affinity">affinity
-     *         rules</a>. Only reached for columns DDLSmith did not create (the dialect only renders
+     *         rules</a>. Only reached for columns DDLsmith did not create (the dialect only renders
      *         types this mapper can parse), and it exists so that such a column is reported as a
      *         type difference rather than crashing the comparison.
      */

@@ -5,7 +5,7 @@ import java.util.List;
 import org.ddlsmith.common.schema.DataType;
 
 /**
- * One query of the semantic bank, together with the answer DDLSmith computed for it from the
+ * One query of the semantic bank, together with the answer DDLsmith computed for it from the
  * materialized graph instance.
  *
  * <p>Three shapes exist, all of them black-box SQL:</p>

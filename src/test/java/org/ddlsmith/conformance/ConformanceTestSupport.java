@@ -6,7 +6,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.MainOptions;
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.RelationalSchema;
@@ -63,7 +63,7 @@ final class ConformanceTestSupport {
 
     /** One database under test, its connection and the oracle context around it. */
     static final class Session implements AutoCloseable {
-        DDLSmithDBConnection connection;
+        DDLsmithDBConnection connection;
         DatabaseUnderTest database;
         OracleContext context;
         Input input;
@@ -105,7 +105,7 @@ final class ConformanceTestSupport {
             Input input, long seed) throws SQLException {
         Session session = new Session();
         session.input = input;
-        session.connection = new DDLSmithDBConnection(DriverManager.getConnection(jdbcUrl), name);
+        session.connection = new DDLsmithDBConnection(DriverManager.getConnection(jdbcUrl), name);
         session.database = new DatabaseUnderTest(name, session.connection, dialect, introspector);
         session.context = new OracleContext()
                 .setGraph(input.graph)

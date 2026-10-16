@@ -10,7 +10,7 @@ import java.sql.DriverManager;
 import java.util.Arrays;
 import java.util.List;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.Index;
@@ -225,7 +225,7 @@ class SqliteDialectTest {
 
     @Test
     void schemaRoundTripIsClean() throws Exception {
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             SelfCheck.RoundTripResult result = SelfCheck.executeAndIntrospect(connection, dialect, false);
             assertTrue(result.differences.isEmpty(),
                     () -> "schema round trip differences:\n" + SchemaNormalizer.render(result.differences));
@@ -236,7 +236,7 @@ class SqliteDialectTest {
 
     @Test
     void identityPartialExpressionIndexAndCollationSurvive() throws Exception {
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             SelfCheck.RoundTripResult result = SelfCheck.executeAndIntrospect(connection, dialect, false);
             Table customer = result.actual.getTable("customer");
             assertNotNull(customer);
@@ -272,7 +272,7 @@ class SqliteDialectTest {
 
     @Test
     void foreignKeysAreEnforcedAfterTheSetupStatements() throws Exception {
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             for (String sql : dialect.getSessionSetupStatements()) {
                 connection.executeStatement(sql);
             }
@@ -288,7 +288,7 @@ class SqliteDialectTest {
 
     @Test
     void generatedColumnsAreVisibleThroughTableXinfo() throws Exception {
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             Table table = new Table("computed");
             table.addColumn(new Column("base", DataType.integer(), false));
             table.addColumn(new Column("doubled", DataType.integer(), true)
@@ -313,7 +313,7 @@ class SqliteDialectTest {
         throw new AssertionError("no index " + name + " in " + table.getName());
     }
 
-    private static DDLSmithDBConnection connect() throws java.sql.SQLException {
-        return new DDLSmithDBConnection(DriverManager.getConnection("jdbc:sqlite::memory:"), "test");
+    private static DDLsmithDBConnection connect() throws java.sql.SQLException {
+        return new DDLsmithDBConnection(DriverManager.getConnection("jdbc:sqlite::memory:"), "test");
     }
 }

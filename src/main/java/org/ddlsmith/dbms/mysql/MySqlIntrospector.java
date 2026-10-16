@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -126,7 +126,7 @@ public class MySqlIntrospector extends AbstractIntrospector {
     private final MySqlTypeMapper typeMapper = new MySqlTypeMapper();
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String schema = resolveSchema(connection, schemaName);
         RelationalSchema result = new RelationalSchema(schema);
 
@@ -176,7 +176,7 @@ public class MySqlIntrospector extends AbstractIntrospector {
                 Index index = toIndex(entry.getKey(), entry.getValue());
                 if (index == null || SchemaNormalizer.isConstraintBackedIndex(index, table)
                         || isForeignKeyIndex(index, table)) {
-                    // a UNIQUE constraint is reported as a unique index as well; DDLSmith never
+                    // a UNIQUE constraint is reported as a unique index as well; DDLsmith never
                     // created it as an index
                     continue;
                 }
@@ -202,18 +202,18 @@ public class MySqlIntrospector extends AbstractIntrospector {
      * Resolves the {@code information_schema} schema (MySQL's name for a database) to read.
      *
      * <p>An explicit name wins. Otherwise the connection's <em>current database</em> is asked for with
-     * {@code SELECT DATABASE()}, and only if that is empty does the logical database name DDLSmith
+     * {@code SELECT DATABASE()}, and only if that is empty does the logical database name DDLsmith
      * generated serve as a fallback.</p>
      *
      * <p>The order matters and used to be the other way round. {@code connection.getDatabaseName()}
-     * is DDLSmith's own name for the generated database — {@code database0}, {@code database1} — and
+     * is DDLsmith's own name for the generated database — {@code database0}, {@code database1} — and
      * for an embedded engine that is the whole database. For MySQL it is not a schema at all: the
      * tables live in the database named by the configuration ({@code ddlsmith}), because that is what
      * the JDBC URL connects to. Reading {@code information_schema} with
      * {@code table_schema = 'database0'} therefore found nothing, and the round-trip oracle reported
      * every table as missing even though every {@code CREATE TABLE} had succeeded.</p>
      */
-    private String resolveSchema(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    private String resolveSchema(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         if (schemaName != null && !schemaName.isEmpty()) {
             return schemaName;
         }
@@ -229,7 +229,7 @@ public class MySqlIntrospector extends AbstractIntrospector {
                 + "or connect with a default database");
     }
 
-    private List<Map<String, Object>> readIndexRows(DDLSmithDBConnection connection, String schema, String tableName)
+    private List<Map<String, Object>> readIndexRows(DDLsmithDBConnection connection, String schema, String tableName)
             throws SQLException {
         try {
             return query(connection, INDEXES_SQL, schema, tableName);
@@ -238,7 +238,7 @@ public class MySqlIntrospector extends AbstractIntrospector {
         }
     }
 
-    private List<Map<String, Object>> queryQuietly(DDLSmithDBConnection connection, String sql, Object... parameters) {
+    private List<Map<String, Object>> queryQuietly(DDLsmithDBConnection connection, String sql, Object... parameters) {
         try {
             return query(connection, sql, parameters);
         } catch (SQLException e) {
@@ -398,7 +398,7 @@ public class MySqlIntrospector extends AbstractIntrospector {
     }
 
     /**
-     * @return true when the index is the one InnoDB creates for a foreign key rather than one DDLSmith
+     * @return true when the index is the one InnoDB creates for a foreign key rather than one DDLsmith
      *         asked for
      *
      * <p>InnoDB requires an index on a foreign key's referencing columns and creates one when the schema
@@ -410,12 +410,12 @@ public class MySqlIntrospector extends AbstractIntrospector {
      *
      * <p>What identifies it is the name InnoDB gives it, which depends on whether the foreign key was
      * named: after the constraint when it was, and after the <em>first referencing column</em> when it
-     * was not. DDLSmith declares a foreign key unnamed inside {@code CREATE TABLE} (it names one only in
+     * was not. DDLsmith declares a foreign key unnamed inside {@code CREATE TABLE} (it names one only in
      * the {@code ALTER TABLE ... ADD CONSTRAINT} form), so on a live server the constraint arrives as
      * {@code t_3_ibfk_2} while its index arrives as {@code t_0_id_2} — which is why matching the
-     * constraint name alone left the indexes in place. DDLSmith's own indexes are always named
+     * constraint name alone left the indexes in place. DDLsmith's own indexes are always named
      * {@code idx_}, {@code uidx_} or {@code ev_idx_}, so neither shape can be one of them, and an index
-     * the engine really did create for DDLSmith is still reported.</p>
+     * the engine really did create for DDLsmith is still reported.</p>
      *
      * <p>The first referencing column's name is not free either: when another index already carries it,
      * InnoDB appends a counter, so a foreign key on {@code (e0_dst_a0, e0_dst_a2)} whose first column

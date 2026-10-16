@@ -1,15 +1,17 @@
-# DDLSmith MySQL 实机验收报告
+# DDLsmith MySQL 实机验收报告
 
-本报告记录 DDLSmith 对 **MySQL 的第一次可信大规模实测**。与
+本报告记录 DDLsmith 对 **MySQL 的第一次可信大规模实测**。与
 [ACCEPTANCE-2.md](ACCEPTANCE-2.md) §8.1 的区别在于：那里只有一次 20 库的普查，结论是「剩下的全是
 归一化尾巴，尚未修完」；本报告把那根尾巴**量化、定位、修完并同种子复验**，然后才开规模。
 
-* 被测对象：`target/DDLSmith.jar`（Java 17，Maven 构建）
+* 被测对象：`target/DDLsmith.jar`（Java 17，Maven 构建）
 * 引擎：MySQL **26.7.0**（容器 `ddlsmith-mysql`，宿主 33306）、PostgreSQL **18.6**（容器
   `ddlsmith-pg`，宿主 15432，差分类别用）
 * 环境：Windows，JDK 17，MySQL `max_connections=151`
 * 编排：`runs/mysql-campaign/`（配置、回收、普查、线程标定、一轮编排、客户端/服务器安全回放器）
 * 原始数据：`runs/mysql-campaign/{baseline,census1,verify1,verify2,mysql1,sweep1}/`
+
+> 注：本文引用的 `runs/`、`bugs/` 证据树与 `logs/` 运行产物已不随仓库分发；文中这些路径是当时的原始记录。
 
 ---
 
@@ -24,7 +26,7 @@
 | `verify4`（交付构建，默认 oracle） | 700 库 | **0** | 种子 2100000 起 7 块，前两块与 `census1` 同种子 |
 | `mysql3`（六类并行规模化） | 862 库 + 905 次渲染 | 7（4 类） | 见 §8.8：两个工具缺陷当场定性并修复，两个是实验性 oracle 的误报 |
 
-**关键数字：同一批种子上 1 057 条失败变成 0 条。** 11 类缺陷归并为 **4 个根因**，全部是 DDLSmith
+**关键数字：同一批种子上 1 057 条失败变成 0 条。** 11 类缺陷归并为 **4 个根因**，全部是 DDLsmith
 自身的缺陷——这正是本工具最危险的失效模式（把工具的错误报成引擎的缺陷），因此第一步的全部工作就是把
 它们消除，然后才允许开规模。
 
@@ -111,7 +113,7 @@ MySQL 把 `CREATE UNIQUE INDEX uidx ON t (a)` **同时**记成：
 * `information_schema.table_constraints` 里 `constraint_type='UNIQUE'`、名字同为 `uidx` 的一行。
 
 `MySqlIntrospector` 先读约束、再读索引，然后用 `SchemaNormalizer.isConstraintBackedIndex` 把
-「列集合与某个 UNIQUE 约束相同」的唯一索引丢掉——于是这个索引从内省结果里消失。而 DDLSmith 的
+「列集合与某个 UNIQUE 约束相同」的唯一索引丢掉——于是这个索引从内省结果里消失。而 DDLsmith 的
 期望模型里它**是**索引（不是约束），`compareIndexes` 便报 `MISSING_INDEX`。
 
 **目录里根本无法区分这两者**：`SHOW CREATE TABLE` 对二者都渲染成 `UNIQUE KEY`。所以修复只能落在
@@ -125,7 +127,7 @@ MySQL 把 `CREATE UNIQUE INDEX uidx ON t (a)` **同时**记成：
 
 ### 根因 C · 视图定义的三处改写（229 条）
 
-MySQL 把 DDLSmith 的 `select a.t_0_id, b.id from t_1 a join t_0 b on ...` 回读成：
+MySQL 把 DDLsmith 的 `select a.t_0_id, b.id from t_1 a join t_0 b on ...` 回读成：
 
 ```sql
 select a.t_0_id as t_0_id,b.id as id
@@ -268,7 +270,7 @@ POSTGRES SELF-CHECK OK
 
 ## 7. 引擎侧的实测结论（可独立复现）
 
-以下全部是**裸 SQL + 引擎原话**，与 DDLSmith 无关。
+以下全部是**裸 SQL + 引擎原话**，与 DDLsmith 无关。
 
 ### 7.1 MySQL 3823：CHECK 与「会写列」的引用动作不能共存
 
@@ -364,7 +366,7 @@ pwsh -File runs\mysql-campaign\run-mysql-round.ps1 -Round mysql1 `
 
 日志里的引擎原话是 `Table 't_1' already exists`，而涉及的命名空间是**同一个** `ddlsmith_database0`。
 
-**根因**：每个生成库的命名空间由 `<schema 名>_<生成库名>` 推导，而 DDLSmith 在往里建对象**之前会先
+**根因**：每个生成库的命名空间由 `<schema 名>_<生成库名>` 推导，而 DDLsmith 在往里建对象**之前会先
 DROP 它**（这是「删掉内嵌库文件」在客户端/服务器引擎上的对应物）。六个类别都用默认的
 `--schema-name ddlsmith`，于是全部推导出 `ddlsmith_database0`、`ddlsmith_database1`、……，彼此把对方的
 对象删掉：A 类建表 → B 类 DROP 掉这个命名空间再重建 → A 类的下一条语句撞上「表已存在」或「表不存在」。
@@ -376,7 +378,7 @@ DROP 它**（这是「删掉内嵌库文件」在客户端/服务器引擎上的
   `ddlsmith_con` / `ddlsmith_dif` / `ddlsmith_rep`）；
 * `reap.ps1` 的默认回收模式相应扩展为
   `^(ddlsmith(_[a-z]+)?(_database[0-9]+|_reproduce)|ddlsmith_replay|ddlsmith_selfcheck(_rule)?)$`，
-  仍然只认 DDLSmith 自己会选的名字（已用 14 个名字逐一验证：`ddlsmith`、`information_schema`、
+  仍然只认 DDLsmith 自己会选的名字（已用 14 个名字逐一验证：`ddlsmith`、`information_schema`、
   别的容器名一律不碰）。
 
 这一条值得单独记下来，因为它是**只有真的开规模才会出现**的失效模式，而且它完美复刻了本工具要防的那种
@@ -389,7 +391,7 @@ DROP 它**（这是「删掉内嵌库文件」在客户端/服务器引擎上的
 原话是 PostgreSQL 的：
 
 ```
-DDLSmith failure: engine rejected compare-create although it declares ...
+DDLsmith failure: engine rejected compare-create although it declares ...
 Error      : ERROR: relation "t_1" already exists
 CREATE TABLE t_1 (id BIGINT NOT NULL, ...)  -- <-- FAILS HERE   ← 未加限定符
 ```
@@ -525,7 +527,7 @@ README §12 的实验性标注（`constraint-enforcement` 里那条基于错误�
 **最后的 3 条不是同一个形态，当时的定性是错的**（2026-10-05 复核，见 §12）：
 
 ```
-DDLSmith failure: 1 declared constraint(s) not honoured (CONSTRAINT_NOT_ENFORCED x1)
+DDLsmith failure: 1 declared constraint(s) not honoured (CONSTRAINT_NOT_ENFORCED x1)
 - skipped table t_1_r: it references t_0, which could not be populated
 ```
 
@@ -621,7 +623,7 @@ DDLSmith failure: 1 declared constraint(s) not honoured (CONSTRAINT_NOT_ENFORCED
 * 服务器上 `ddlsmith_replay` / `ddlsmith_selfcheck` 是工具自己的遗留命名空间（前者来自 `--reproduce`
   修复前的 `--database` 变通做法）。`reap.ps1` 的默认模式已扩展为
   `^(ddlsmith(_[a-z]+)?(_database[0-9]+|_reproduce)|ddlsmith_replay|ddlsmith_selfcheck(_rule)?)$`，
-  已用 14 个名字逐一验证只认 DDLSmith 自己会选的名字。
+  已用 14 个名字逐一验证只认 DDLsmith 自己会选的名字。
 
 ---
 
@@ -670,7 +672,7 @@ PostgreSQL **330 / 0**；内嵌引擎 SQLite **312 断言**、H2、DuckDB **SELF
 
 ## 12. 交付后的复核：§9 / §10 里剩下的三项（2026-10-05）
 
-交付构建（`target/DDLSmith.jar`，16:13:40）之后，把 §9「未完成」和 §10「诚实边界」里列出的每一项重新拿
+交付构建（`target/DDLsmith.jar`，16:13:40）之后，把 §9「未完成」和 §10「诚实边界」里列出的每一项重新拿
 证据过了一遍。结论是：**三项里两项是本文自己的定性错误，一项是真的工具缺陷**，现在全部处理完。
 
 ### 12.1 复核的方法
@@ -717,7 +719,7 @@ means that you cannot use self-referential `ON UPDATE CASCADE` or `ON UPDATE SET
 2. 发现里**补上引擎原话**：`ReferentialActionOracle.runProbe` 改为返回 `ExecutionEvent`，报告里多一行
    `Engine said: failed: Cannot delete or update a parent row: … (SQLState 23000, code 1451)`。原报告的
    「引擎原话」栏只有注记，读的人必须回到服务器才能知道原因。
-3. 归档 [`bugs/mysql/001-n-declared-constraint-s-not-honoured-constraint-not-enforced.md`](../bugs/mysql/001-n-declared-constraint-s-not-honoured-constraint-not-enforced.md)，
+3. 把 `bugs/mysql/001-n-declared-constraint-s-not-honoured-constraint-not-enforced.md` 归档，
    并加上维护者注记（规则表、裸 SQL、手册原文、以及"这不是工具误报"的说明）。
 4. MySQL 实机自检新增 `checkSelfReferentialCascadeRule`：5 种动作逐条断言错误码 **1451**，外加两个对照
    （无子行 → 接受；指向另一张表 → 接受并跟着改）。规则一旦漂移，自检立刻可见。
@@ -822,9 +824,8 @@ pwsh -File runs\mysql-campaign\run-mysql-round.ps1 -Round mysql5 `
 ## 13. 缺陷挖掘轮：12 小时，两个引擎缺陷（2026-10-06）
 
 §1–§12 回答的是「工具在 MySQL 上是不是绿的」，答案是肯定的。这一轮换了一个问题：**MySQL 还错在哪**。
-类别组合因此按「历史上真正找出过引擎缺陷的是什么」来选，而组合本身就是被检验的变量。完整报告见
-[runs/mysql-campaign/12h-b/REPORT.md](../runs/mysql-campaign/12h-b/REPORT.md)，逐条定性见同目录的
-[CLASSIFICATION.md](../runs/mysql-campaign/12h-b/CLASSIFICATION.md)。
+类别组合因此按「历史上真正找出过引擎缺陷的是什么」来选，而组合本身就是被检验的变量。完整报告（含逐条
+定性）是 `runs/mysql-campaign/12h-b/REPORT.md` 与同目录的 `CLASSIFICATION.md`，两者已随证据树一并移除。
 
 ### 13.1 设计：两个实例、同一版本
 
@@ -842,8 +843,8 @@ MySQL 9.6 把外键强制与级联处理从 InnoDB 搬进了 SQL 引擎，`innod
 
 | 归档 | 形态 | 路径 | 判定 |
 | ---- | ---- | ---- | ---- |
-| [`bugs/mysql/004`](../bugs/mysql/004-self-referencing-composite-foreign-key-not-enforced.md) | **自引用的复合外键完全不强制**：两个键列都非 NULL、父行不存在，行照样写进去，表里不断堆积悬挂行 | 仅 SQL 引擎路径 | 已确认，最小复现确定可重复 |
-| [`bugs/mysql/003`](../bugs/mysql/003-cascading-delete-refused-when-a-self-referencing-cascade-chain-is-three-rows-deep.md) | **自引用 `ON DELETE CASCADE` 的链到三行时，级联删除被整条拒绝**（`ERROR 6575`，两行可以、三行不行，且什么都不删） | 仅 SQL 引擎路径 | 已确认，8.0.28 与本机 InnoDB 路径均正常 |
+| `bugs/mysql/004` | **自引用的复合外键完全不强制**：两个键列都非 NULL、父行不存在，行照样写进去，表里不断堆积悬挂行 | 仅 SQL 引擎路径 | 已确认，最小复现确定可重复 |
+| `bugs/mysql/003` | **自引用 `ON DELETE CASCADE` 的链到三行时，级联删除被整条拒绝**（`ERROR 6575`，两行可以、三行不行，且什么都不删） | 仅 SQL 引擎路径 | 已确认，8.0.28 与本机 InnoDB 路径均正常 |
 
 两条都是**回归**，而且都不在目录里可见：`TABLE_CONSTRAINTS`、`REFERENTIAL_CONSTRAINTS` 与
 `SHOW CREATE TABLE` 都照常报告那个根本没被执行的约束。加上上一轮归档的 `bugs/mysql/002`，
@@ -913,7 +914,7 @@ MySQL 9.6 把外键强制与级联处理从 InnoDB 搬进了 SQL 引擎，`innod
 
 这一节记录的不是引擎缺陷，而是**工具自己的三处误报**：两小时实验（`runs/REPORT-MYSQL-2H.md`）用
 `graph-conformance` 与 `--oracle ALL` 跑了 3 506 个数据库、13 条失败，分成 4 类——1 类是 MySQL 的真实缺陷
-（`bugs/mysql/005`，已单独归档），另外 3 类全是 DDLSmith 自己的问题。三处都已修复，并且**回到失败的同一个
+（`bugs/mysql/005`，已单独归档），另外 3 类全是 DDLsmith 自己的问题。三处都已修复，并且**回到失败的同一个
 数据库**上做了 A/B 复测（基线 = 修复前提交 `f3411b2`）。
 
 ### 14.1 大小写：默认排序规则不是模型的相等

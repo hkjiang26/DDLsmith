@@ -503,7 +503,7 @@ class MappingTest {
         assertFalse(membershipColumns.isEmpty(), "the category must have membership columns");
 
         // The generator used to leave every membership column NULL and emit a row that violated the
-        // constraint DDLSmith itself had written - the engine rejected it and the
+        // constraint DDLsmith itself had written - the engine rejected it and the
         // constraint-enforcement oracle reported the engine as too strict. Rows are generated
         // repeatedly because which columns the generator fills is random: the point is that no
         // attempt may produce a row with all of them NULL.

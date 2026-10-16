@@ -34,7 +34,7 @@ public final class StatementRunner {
         // engine out of it: the object simply does not exist, and the round-trip oracle reports the
         // mismatch truthfully as a missing object.
         if (isCommentOnly(sql)) {
-            // expectedToFail, because DDLSmith itself knows the object will not appear: the dialect
+            // expectedToFail, because DDLsmith itself knows the object will not appear: the dialect
             // cannot express it, so there is nothing for the engine to have done wrong. Flagging it as
             // an unexpected failure would make the crash oracle blame the engine for a construct the
             // user force-enabled, which is the opposite of a finding.
@@ -45,7 +45,7 @@ public final class StatementRunner {
             context.addExecutionEvent(event);
             String reason = sql.trim();
             context.getTrace().note("skipped a comment-only rendering for purpose '" + purpose + "': " + reason);
-            System.err.println("DDLSmith: warning: nothing was executed for purpose '" + purpose + "' because "
+            System.err.println("DDLsmith: warning: nothing was executed for purpose '" + purpose + "' because "
                     + database.getDialect().getName() + " cannot express it (" + reason
                     + "); a --ddl-features override for this construct has no effect");
             return event;
@@ -74,7 +74,7 @@ public final class StatementRunner {
         database.getExecutedStatements().add((succeeded ? "" : "-- FAILED: ") + sql);
         // Record the statement for the failure log. This is what makes a failure log self-contained:
         // the replay mode reads statements out of the log, so a log that omitted them could never
-        // reproduce anything, and the finding would be unreproducible for anyone without DDLSmith.
+        // reproduce anything, and the finding would be unreproducible for anyone without DDLsmith.
         if (context.getStateToReproduce() != null) {
             context.getStateToReproduce().logStatement(sql);
         }

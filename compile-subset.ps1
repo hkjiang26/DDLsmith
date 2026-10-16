@@ -1,4 +1,4 @@
-# Compiles a subset of DDLSmith sources against the pre-compiled frozen contract.
+# Compiles a subset of DDLsmith sources against the pre-compiled frozen contract.
 # Usage:
 #   ./compile-subset.ps1 -Files @('src\main\java\org\ddlsmith\graph\gen\*.java')
 #   ./compile-subset.ps1 -Path src/main/java/org/ddlsmith/graph/gen

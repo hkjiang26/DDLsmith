@@ -28,7 +28,7 @@ import org.ddlsmith.common.query.QueryResult;
 import org.ddlsmith.oracle.OracleFailure;
 
 /**
- * Entry point of DDLSmith.
+ * Entry point of DDLsmith.
  *
  * <p>The overall flow mirrors GDsmith: each thread repeatedly creates a fresh database, generates
  * an input for it, executes the generated statements, runs the oracles, and records every failure
@@ -303,7 +303,7 @@ public final class Main {
 
     /* ------------------------------------------------------------------ execution */
 
-    public static class DBMSExecutor<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLSmithDBConnection> {
+    public static class DBMSExecutor<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLsmithDBConnection> {
 
         private final DatabaseProvider<G, O, C> provider;
         private final MainOptions options;
@@ -402,7 +402,7 @@ public final class Main {
         }
     }
 
-    public static class DBMSExecutorFactory<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLSmithDBConnection> {
+    public static class DBMSExecutorFactory<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLsmithDBConnection> {
 
         private final DatabaseProvider<G, O, C> provider;
         private final MainOptions options;
@@ -492,9 +492,9 @@ public final class Main {
         }
 
         // A single argument object with the engine as a positional parameter, so that options may
-        // appear in any order: `DDLSmith sqlite --num-tries 20` and
-        // `DDLSmith --num-tries 20 sqlite` both work.
-        JCommander jc = JCommander.newBuilder().addObject(options).programName("DDLSmith").build();
+        // appear in any order: `DDLsmith sqlite --num-tries 20` and
+        // `DDLsmith --num-tries 20 sqlite` both work.
+        JCommander jc = JCommander.newBuilder().addObject(options).programName("DDLsmith").build();
         try {
             jc.parse(args);
         } catch (Exception e) {
@@ -572,7 +572,7 @@ public final class Main {
                 executorFactory.getDBMSExecutor(options.getDatabasePrefix() + "connectiontest", new Randomly())
                         .testConnection();
             } catch (Exception e) {
-                System.err.println("DDLSmith could not create a test database; check the host, port, username and "
+                System.err.println("DDLsmith could not create a test database; check the host, port, username and "
                         + "password options.");
                 e.printStackTrace();
                 return options.getErrorExitCode();
@@ -599,18 +599,18 @@ public final class Main {
                     executor = executorFactory.getDBMSExecutor(databaseName, new Randomly(), inputSlot);
                     executor.run();
                 } catch (DatabaseUnavailableException e) {
-                    System.err.println("DDLSmith: " + e.getMessage());
-                    System.err.println("DDLSmith: the test could not be run. Start the database, add an entry for it "
+                    System.err.println("DDLsmith: " + e.getMessage());
+                    System.err.println("DDLsmith: the test could not be run. Start the database, add an entry for it "
                             + "to config.json, or pass --url.");
                     unavailableDatabases.incrementAndGet();
                 } catch (IgnoreMeException e) {
                     // the input was not interesting; nothing to report
                 } catch (Throwable throwable) {
-                    // Anything reaching here is a defect in DDLSmith itself: an engine defect would have
+                    // Anything reaching here is a defect in DDLsmith itself: an engine defect would have
                     // been reported as an OracleFailure by now. It must therefore fail the run — counting
                     // it only as an unsuccessful action would let the process exit 0 after a crash in the
                     // harness, which is exactly the kind of silent pass this tool exists to prevent.
-                    System.err.println("DDLSmith: unexpected failure in thread " + databaseName);
+                    System.err.println("DDLsmith: unexpected failure in thread " + databaseName);
                     throwable.printStackTrace();
                     // A stack trace alone does not say which database and seed produced it, and the seed
                     // is the only handle on the input. The crash is therefore written to a log file too,
@@ -643,7 +643,7 @@ public final class Main {
     }
 
     private static void printBanner(String command, MainOptions options) {
-        System.out.println("DDLSmith: random graph -> ER diagram -> relational DDL testing");
+        System.out.println("DDLsmith: random graph -> ER diagram -> relational DDL testing");
         System.out.println("target database   : " + command);
         System.out.println("seed              : " + (options.getRandomSeed() == -1 ? "time-based" : options.getRandomSeed()));
         System.out.println("databases         : " + options.getTotalNumberTries());
@@ -744,7 +744,7 @@ public final class Main {
             File file = logger.logException(throwable, state,
                     "the tool itself failed while testing " + databaseName
                             + "; the statements above are the ones that had been executed when it happened");
-            System.err.println("DDLSmith: the crash was recorded in " + file.getAbsolutePath());
+            System.err.println("DDLsmith: the crash was recorded in " + file.getAbsolutePath());
         } catch (Throwable ignored) {
             // reporting a crash must never mask the crash itself
         }

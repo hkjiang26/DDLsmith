@@ -188,12 +188,12 @@ public class RowGenerator {
     /**
      * Gives a non-NULL value to the operands of every {@code NOT NULL} generated column.
      *
-     * <p>A generated column is not part of the row DDLSmith inserts — the engine computes it — so it
+     * <p>A generated column is not part of the row DDLsmith inserts — the engine computes it — so it
      * is skipped when the row is built and also when the row is checked against the declared
      * constraints. That is right until the expression is arithmetic over a nullable column:
      * {@code GENERATED ALWAYS AS (a10 + 1) NOT NULL} evaluates to NULL whenever {@code a10} is NULL,
      * and the engine then rejects the INSERT with "NULL not allowed for column", which the constraint
-     * oracle reported as the engine being too strict about a row DDLSmith had declared valid. The
+     * oracle reported as the engine being too strict about a row DDLsmith had declared valid. The
      * expression itself cannot be evaluated here, so the only reason the value can be NULL is removed
      * instead: the operands the expression names are filled. Skipping the table would silence the
      * finding too, but it would also lose the coverage.</p>
@@ -619,7 +619,7 @@ public class RowGenerator {
      * Satisfies an <em>at-least-one</em> disjunction of {@code IS NOT NULL} predicates by giving one of
      * its operands a value, when every operand is currently NULL.
      *
-     * <p>The single disjunction DDLSmith generates is the union-membership check of a category —
+     * <p>The single disjunction DDLsmith generates is the union-membership check of a category —
      * {@code col1 IS NOT NULL OR col2 IS NOT NULL}, written by
      * {@link org.ddlsmith.mapping.impl.StandardERToRelationalMapper} for a union type with two or more
      * superclasses. The generator understood neither the disjunction nor its operands one at a time, so

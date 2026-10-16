@@ -6,7 +6,7 @@ import java.util.Random;
 import java.util.function.Supplier;
 
 /**
- * Seeded pseudo-random source for DDLSmith.
+ * Seeded pseudo-random source for DDLsmith.
  *
  * <p>Adapted from GDsmith/SQLancer's {@code Randomly}. Every random decision of the tool flows
  * through this class, so a run can be reproduced exactly from its seed. Values are cached and

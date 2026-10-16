@@ -5,7 +5,7 @@ import org.ddlsmith.Randomly;
 /**
  * The mapping decisions used when translating an ER diagram into a relational schema. Every
  * decision corresponds to one of the well-known alternatives of the ER-to-relational algorithm,
- * and DDLSmith randomizes them so that all of them are exercised.
+ * and DDLsmith randomizes them so that all of them are exercised.
  */
 public class MappingOptions {
 

@@ -20,7 +20,7 @@ import org.ddlsmith.MainOptions;
  *
  * <p>When no file is present, a built-in default configuration is used that makes the three
  * embedded engines (SQLite, H2, DuckDB) usable with no infrastructure at all. That is what allows
- * DDLSmith to run differential DDL testing out of the box.</p>
+ * DDLsmith to run differential DDL testing out of the box.</p>
  */
 public final class Configuration {
 

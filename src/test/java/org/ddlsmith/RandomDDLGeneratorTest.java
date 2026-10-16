@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
  * <p>This is the property the evolution algorithm depends on: after executing every generated
  * statement, the database must match {@link RandomDDLGenerator#getCurrentSchema()}. A generator that
  * occasionally emitted a statement it did not reflect in the model would make the round-trip oracle
- * report differences that are DDLSmith's fault.</p>
+ * report differences that are DDLsmith's fault.</p>
  */
 class RandomDDLGeneratorTest {
 

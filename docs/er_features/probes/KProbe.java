@@ -2,7 +2,7 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.GlobalState;
 import org.ddlsmith.MainOptions;
 import org.ddlsmith.Randomly;
@@ -29,7 +29,7 @@ import org.ddlsmith.oracle.impl.SchemaPrinter;
 public class KProbe {
 
     /** A global state with no connection, the same shape the DDL-only mode uses. */
-    private static final class HeadlessState extends GlobalState<ConnectionOptions, DDLSmithDBConnection> {
+    private static final class HeadlessState extends GlobalState<ConnectionOptions, DDLsmithDBConnection> {
         HeadlessState(MainOptions options, int slot) {
             setMainOptions(options);
             StateToReproduce state = new StateToReproduce("kprobe");

@@ -9,7 +9,7 @@ import com.beust.jcommander.Parameters;
 import org.ddlsmith.Randomly.StringGenerationStrategy;
 
 /**
- * Options shared by every DBMS provider of DDLSmith (mirrors GDsmith's {@code MainOptions}).
+ * Options shared by every DBMS provider of DDLsmith (mirrors GDsmith's {@code MainOptions}).
  */
 @Parameters(separators = "=", commandDescription = "Random graph -> ER diagram -> relational DDL testing")
 public class MainOptions {

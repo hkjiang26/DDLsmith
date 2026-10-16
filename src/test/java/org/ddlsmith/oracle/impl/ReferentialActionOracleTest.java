@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
  * wrong constraint: a child table with two foreign keys to the same parent — a recursive relationship
  * mapped with a source and a destination column — had the second one's report announce the first one's
  * actions, which told the reader the engine had stored a {@code CASCADE} where it had in fact stored
- * the {@code RESTRICT} DDLSmith asked for.</p>
+ * the {@code RESTRICT} DDLsmith asked for.</p>
  */
 class ReferentialActionOracleTest {
 

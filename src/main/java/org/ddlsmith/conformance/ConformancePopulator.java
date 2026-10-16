@@ -120,7 +120,7 @@ public final class ConformancePopulator {
                 }
                 String valueTheEngineComputes = valueComputedByTheEngine(row.getTable(), event);
                 if (valueTheEngineComputes != null) {
-                    // The row was refused because of a value DDLSmith never inserts: the engine derives it
+                    // The row was refused because of a value DDLsmith never inserts: the engine derives it
                     // from the row's other columns. Whether a legal combination of the written columns
                     // makes that derived value fit its own column is a property of the generated
                     // expression, which the materializer does not evaluate - so the refusal says
@@ -133,7 +133,7 @@ public final class ConformancePopulator {
                 }
                 String coarserComparison = coarserComparison(context, database, row, event);
                 if (coarserComparison != null) {
-                    // Two rows DDLSmith's plan holds distinct are one value to the engine. The engine is
+                    // Two rows DDLsmith's plan holds distinct are one value to the engine. The engine is
                     // right under its own comparison; the model's equality is the one the schema was
                     // written for. The check that proves it is the engine's own answer, so a genuine
                     // uniqueness defect (an engine refusing a row that no stored row collides with)
@@ -186,7 +186,7 @@ public final class ConformancePopulator {
     /**
      * @return true when the engine rejected the row as a duplicate and the key it complains about is one
      *         the engine computes: a unique constraint (or unique index) over a generated column, whose
-     *         value DDLSmith never inserts and therefore cannot predict when it plans the instance
+     *         value DDLsmith never inserts and therefore cannot predict when it plans the instance
      */
     private static boolean isUniquenessOverAGeneratedColumn(Table table, ExecutionEvent event) {
         if (!mentionsUniqueness(event)) {
@@ -220,7 +220,7 @@ public final class ConformancePopulator {
      * fit its own declared type. MySQL refuses such a row with {@code 1264 Out of range value for
      * column 'a10'} (SQLSTATE {@code 22003}) when, for instance, {@code a10 SMALLINT GENERATED ALWAYS
      * AS (a1 + 1) STORED} receives {@code a1 = 40000}: {@code a1} fits {@code INT} and {@code a10}
-     * does not fit {@code SMALLINT}. The fix for the expression shapes DDLSmith generates itself is in
+     * does not fit {@code SMALLINT}. The fix for the expression shapes DDLsmith generates itself is in
      * {@link ConformancePlanner}; this is the backstop for the shapes it does not evaluate, so that an
      * expression the materializer cannot reason about becomes a note rather than an accusation.</p>
      *

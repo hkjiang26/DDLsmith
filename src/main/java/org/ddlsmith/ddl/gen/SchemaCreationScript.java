@@ -172,7 +172,7 @@ public final class SchemaCreationScript {
     }
 
     /**
-     * A random subset of the create script, used when DDLSmith wants to create only part of the
+     * A random subset of the create script, used when DDLsmith wants to create only part of the
      * schema (for instance to leave some tables for a later {@code ALTER TABLE}).
      */
     public static List<DDLStatement> createSubset(RelationalSchema schema, Dialect dialect, MainOptions options,

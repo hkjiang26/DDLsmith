@@ -17,7 +17,7 @@ import org.ddlsmith.oracle.OracleFailure;
 
 /**
  * Focuses on schema evolution: it creates the schema, evolves it with random {@code ALTER TABLE}
- * statements, and checks after every step that the database still matches the schema DDLSmith
+ * statements, and checks after every step that the database still matches the schema DDLsmith
  * believes it has.
  *
  * <p>This turns the round-trip comparison into an incremental one, which pinpoints the exact
@@ -82,7 +82,7 @@ public class SchemaEvolutionAlgorithm extends AbstractTestingAlgorithm {
             if (!event.isSucceeded()) {
                 // The engine refused the statement, so its effect must not stay in the model: comparing
                 // the catalog with a schema that was never created reports the missing column or index
-                // as a divergence, which is a finding about DDLSmith rather than about the engine — and
+                // as a divergence, which is a finding about DDLsmith rather than about the engine — and
                 // it hides the rejection itself, which is what the crash oracle is for. Rolling the
                 // model back keeps the two in step and lets the evolution continue from a state the
                 // engine really has.
@@ -97,7 +97,7 @@ public class SchemaEvolutionAlgorithm extends AbstractTestingAlgorithm {
                 failures.add(new OracleFailure(OracleFailure.FailureKind.SCHEMA_MISMATCH, getName(),
                         "schema diverged after " + statement.describe(),
                         "After executing the ALTER TABLE statement below, the schema reported by the database no "
-                                + "longer matches the schema DDLSmith intended. This pinpoints the statement that "
+                                + "longer matches the schema DDLsmith intended. This pinpoints the statement that "
                                 + "introduced the divergence.\n\n"
                                 + "Statement: " + statement.toSql(primary.getDialect()) + "\n\n"
                                 + "Preceding statements:\n" + renderHistory(history, primary) + "\n"

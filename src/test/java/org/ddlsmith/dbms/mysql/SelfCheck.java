@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -77,7 +77,7 @@ public final class SelfCheck {
     }
 
     public static void main(String[] args) {
-        System.out.println("=== DDLSmith MySQL self-check ===");
+        System.out.println("=== DDLsmith MySQL self-check ===");
         MySqlDialect dialect = new MySqlDialect();
         MySqlTypeMapper typeMapper = new MySqlTypeMapper();
         MySqlIntrospector introspector = new MySqlIntrospector();
@@ -602,7 +602,7 @@ public final class SelfCheck {
      * present flag produces a false engine finding.</p>
      */
     private static final Set<DDLFeature> NOT_DECLARED = EnumSet.of(
-            // MySQL's "schema" is a database; DDLSmith uses the connection's database as the namespace
+            // MySQL's "schema" is a database; DDLsmith uses the connection's database as the namespace
             DDLFeature.CREATE_SCHEMA,
             DDLFeature.CREATE_SCHEMA_IF_NOT_EXISTS,
             DDLFeature.DROP_SCHEMA,
@@ -901,7 +901,7 @@ public final class SelfCheck {
             return;
         }
         checks++;
-        try (DDLSmithDBConnection dbConnection = new DDLSmithDBConnection(connection, LIVE_DATABASE)) {
+        try (DDLsmithDBConnection dbConnection = new DDLsmithDBConnection(connection, LIVE_DATABASE)) {
             System.out.println("  server: " + dbConnection.getDatabaseProductName() + " "
                     + dbConnection.getDatabaseVersion());
             for (String setup : dialect.getSessionSetupStatements()) {
@@ -979,11 +979,11 @@ public final class SelfCheck {
      * {@code MISSING_INDEX at t_0.idx([e0_dst_a0, e0_dst_a2])} in a 60-minute round because only the
      * bare column name was matched.</p>
      *
-     * <p>The control matters as much as the rule: an index DDLSmith really asked for must still be
+     * <p>The control matters as much as the rule: an index DDLsmith really asked for must still be
      * reported, or the fix would be "drop every index that sits on a foreign key's columns".</p>
      */
     private static void checkForeignKeyIndexNamingRule(MySqlIntrospector introspector,
-            DDLSmithDBConnection connection) throws SQLException {
+            DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- the index InnoDB creates for a foreign key --");
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
@@ -1011,7 +1011,7 @@ public final class SelfCheck {
             assertTrue("the index InnoDB created for the foreign key (" + name + ") is not part of what "
                     + "the schema declared", !name.equalsIgnoreCase("x") && !name.equalsIgnoreCase("x_2"));
         }
-        assertTrue("an index DDLSmith really created is still reported (reported: " + reported + ")",
+        assertTrue("an index DDLsmith really created is still reported (reported: " + reported + ")",
                 reported.contains("idx_t_0"));
 
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
@@ -1031,7 +1031,7 @@ public final class SelfCheck {
      * constraint — {@code TABLE_CONSTRAINTS}, {@code REFERENTIAL_CONSTRAINTS}, {@code KEY_COLUMN_USAGE}
      * and InnoDB's own {@code INNODB_FOREIGN} — and InnoDB even refuses to drop the index that "is
      * needed in a foreign key constraint", so the catalog cannot be used to detect it. That is the
-     * failure mode DDLSmith exists to find: a constraint that is parsed, stored and never enforced.</p>
+     * failure mode DDLsmith exists to find: a constraint that is parsed, stored and never enforced.</p>
      *
      * <p>For contrast, a <em>genuine</em> composite foreign key is checked correctly: a NULL in one of
      * its own columns satisfies it (SQL's MATCH SIMPLE) and a dangling pair does not. The engine is
@@ -1042,7 +1042,7 @@ public final class SelfCheck {
      * On 26.7.x a version that starts enforcing the constraint fails this self-check and says so,
      * instead of the {@code constraint-enforcement} oracle silently going quiet.</p>
      */
-    private static void checkForeignKeyIndexRebindingRule(DDLSmithDBConnection connection) throws SQLException {
+    private static void checkForeignKeyIndexRebindingRule(DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- foreign key enforcement once an index serves the foreign key --");
         String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
@@ -1109,7 +1109,7 @@ public final class SelfCheck {
      * counts — five child tables behave exactly like one — so the probe asserts the boundary at the
      * chain length rather than the message's number.</p>
      */
-    private static void checkCascadeDeleteChainRule(DDLSmithDBConnection connection) throws SQLException {
+    private static void checkCascadeDeleteChainRule(DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- a cascading delete over a self-referencing hierarchy --");
         String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
@@ -1195,7 +1195,7 @@ public final class SelfCheck {
      * constraint fails this self-check instead of the oracle going quiet, and a version that stops
      * honouring {@code MATCH SIMPLE} fails it too.</p>
      */
-    private static void checkCompositeSelfReferenceRule(DDLSmithDBConnection connection) throws SQLException {
+    private static void checkCompositeSelfReferenceRule(DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- a self-referencing composite foreign key --");
         String version = String.valueOf(connection.executeAndGet("SELECT VERSION()").getValue(0, 0));
@@ -1257,7 +1257,7 @@ public final class SelfCheck {
     }
 
     /** @return the error code the server answered with, or {@code null} when it accepted the statement */
-    private static Integer errorCodeOf(DDLSmithDBConnection connection, String sql) {
+    private static Integer errorCodeOf(DDLsmithDBConnection connection, String sql) {
         try {
             connection.executeStatement(sql);
             return null;
@@ -1277,7 +1277,7 @@ public final class SelfCheck {
      * {@code innodb_native_foreign_keys} is the switch between the two paths; the variable does not exist
      * before 9.6, where InnoDB is the only path and the answer is therefore true.</p>
      */
-    private static boolean usesNativeForeignKeyPath(DDLSmithDBConnection connection) {
+    private static boolean usesNativeForeignKeyPath(DDLsmithDBConnection connection) {
         try {
             Object flag = connection.executeAndGet("SELECT @@innodb_native_foreign_keys").getValue(0, 0);
             return flag instanceof Number && ((Number) flag).longValue() != 0L;
@@ -1300,7 +1300,7 @@ public final class SelfCheck {
      * time, and the asserted error code keeps a refusal for some other reason from passing as
      * agreement.</p>
      */
-    private static void checkCheckOnReferentialActionColumnRule(DDLSmithDBConnection connection)
+    private static void checkCheckOnReferentialActionColumnRule(DDLsmithDBConnection connection)
             throws SQLException {
         System.out.println();
         System.out.println("-- which referential actions make a CHECK illegal --");
@@ -1376,7 +1376,7 @@ public final class SelfCheck {
      * check is about. That mistake was made here once, and the probe then reported four actions as
      * "unexpected" while measuring something else entirely.</p>
      */
-    private static void checkStoredGeneratedColumnRule(DDLSmithDBConnection connection) throws SQLException {
+    private static void checkStoredGeneratedColumnRule(DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- STORED generated column over a column a foreign key maintains --");
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);
@@ -1457,7 +1457,7 @@ public final class SelfCheck {
      * the action — the same declaration is honoured when no child row references the parent row, and a
      * foreign key to another table cascades normally.</p>
      */
-    private static void checkSelfReferentialCascadeRule(DDLSmithDBConnection connection) throws SQLException {
+    private static void checkSelfReferentialCascadeRule(DDLsmithDBConnection connection) throws SQLException {
         System.out.println();
         System.out.println("-- updating the key of a row a self-referencing foreign key points at --");
         connection.executeStatement("DROP DATABASE IF EXISTS " + RULE_PROBE_DATABASE);

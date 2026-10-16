@@ -26,7 +26,7 @@ import org.ddlsmith.mapping.impl.StandardERToRelationalMapper;
 import org.ddlsmith.oracle.OracleContext;
 
 /**
- * The first half of every DDLSmith round: generate a random graph, interpret it as an ER diagram,
+ * The first half of every DDLsmith round: generate a random graph, interpret it as an ER diagram,
  * map that diagram to a relational schema, and adapt the schema to the dialect of the database
  * under test.
  *

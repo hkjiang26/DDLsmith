@@ -9,6 +9,9 @@ is not made.
 Everything below was run on the committed build with JDK 17 (`build.ps1`), against the embedded
 engines SQLite 3.49.1, H2 2.3.232 and DuckDB 1.3.
 
+> Note: the `runs/`, `bugs/` and `logs/` trees this report quotes are the record of where that
+> evidence lived at the time; they are no longer distributed with the repository.
+
 ---
 
 ## 1. What the oracle is
@@ -35,8 +38,8 @@ The oracle is an extension, not a built-in: it lives in `org.ddlsmith.conformanc
 through `META-INF/services/org.ddlsmith.oracle.TestOracle`, so select it by name or with `ALL`:
 
 ```shell
-java -jar target/DDLSmith.jar sqlite --oracle graph-conformance --num-tries 50
-java -jar target/DDLSmith.jar sqlite --oracle ALL --num-tries 10
+java -jar target/DDLsmith.jar sqlite --oracle graph-conformance --num-tries 50
+java -jar target/DDLsmith.jar sqlite --oracle ALL --num-tries 10
 ```
 
 ---
@@ -185,7 +188,7 @@ evidence that the census means something.
    findings about the oracle. The rows are now removed again whatever happens, in a `finally`.
 10. **A duplicate refusal was read as "the schema is too strict" although the engine's own comparison
     explained it.** Found by the two-hour MySQL experiment (`runs/REPORT-MYSQL-2H.md` §3.2), and it is
-    engine-independent: the schema is DDLSmith's, so the *engine's* comparison is whatever the dialect
+    engine-independent: the schema is DDLsmith's, so the *engine's* comparison is whatever the dialect
     asked for, and leaving that to a server default made MySQL (whose default collation is case- and
     accent-insensitive) the implementation of a schema nobody wrote. Five of the run's thirteen findings
     were this. Fixed in two places: the dialect now names the comparison
@@ -207,7 +210,7 @@ evidence that the census means something.
     (`ConformanceProbeBuilderTest`).
 13. **Three engines, three refusal vocabularies.** The probe classifier first read the SQLSTATE class
     alone, which is right for the standard and for H2, wrong for MySQL's `CHECK` (SQLSTATE `HY000`, error
-    `3819`) and wrong for SQLite through the driver DDLSmith uses (no SQLSTATE at all, vendor code `19`).
+    `3819`) and wrong for SQLite through the driver DDLsmith uses (no SQLSTATE at all, vendor code `19`).
     The consequence was not a false positive but a silent loss: four correctly refused probes on SQLite
     were filed as "asserted nothing", which is what a weakened oracle looks like when it is not measured.
     Each engine's answer is now measured and pinned (`runs/docs-mysql-fk-and-errors-notes.md` §3).
@@ -249,7 +252,7 @@ two rejection classifications are shared with the older oracles.
 
 ```shell
 # the jar carries the service file and the oracle is discovered from it
-jar tf target/DDLSmith.jar | Select-String META-INF/services
+jar tf target/DDLsmith.jar | Select-String META-INF/services
 # -> META-INF/services/org.ddlsmith.oracle.TestOracle
 
 # the plugin sources compile against the core API alone

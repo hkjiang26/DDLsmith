@@ -30,7 +30,7 @@ import org.ddlsmith.ddl.alter.DropConstraint;
  * The DuckDB 1.3 dialect.
  *
  * <p>DuckDB accepts a wide slice of standard DDL but is deliberately incomplete in two areas that
- * matter to DDLSmith: it has no {@code ALTER TABLE ... ADD/DROP CONSTRAINT} (except
+ * matter to DDLsmith: it has no {@code ALTER TABLE ... ADD/DROP CONSTRAINT} (except
  * {@code ADD PRIMARY KEY}) and no {@code IDENTITY}/{@code SERIAL} columns, and it rejects the
  * {@code CASCADE}/{@code SET NULL}/{@code SET DEFAULT} referential actions outright.</p>
  *
@@ -433,7 +433,7 @@ public class DuckDbDialect extends AbstractDialect {
         // foreign key ("FOREIGN KEY constraints cannot use CASCADE, SET NULL or SET DEFAULT"), but that
         // rejection is a *finding*, and the crash oracle exists to record exactly this kind of
         // claimed-but-unimplemented capability. Throwing here would turn the engine's answer into a
-        // DDLSmith crash and lose the finding. What may be asked for is decided in one place, by the
+        // DDLsmith crash and lose the finding. What may be asked for is decided in one place, by the
         // capability gate in SchemaAdapter, which consults the declared feature set — including a
         // feature the user forced with --ddl-features, whose whole purpose is to ask the engine.
         return super.renderReferentialActions(foreignKey);

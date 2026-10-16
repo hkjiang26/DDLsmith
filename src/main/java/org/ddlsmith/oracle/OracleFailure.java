@@ -117,7 +117,7 @@ public class OracleFailure {
     public String toLogString() {
         StringBuilder sb = new StringBuilder();
         sb.append("================================================================================\n");
-        sb.append("DDLSmith failure: ").append(title).append('\n');
+        sb.append("DDLsmith failure: ").append(title).append('\n');
         sb.append("--------------------------------------------------------------------------------\n");
         sb.append("kind      : ").append(kind).append('\n');
         sb.append("oracle    : ").append(oracleName).append('\n');

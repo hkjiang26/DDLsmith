@@ -34,7 +34,7 @@ import org.ddlsmith.oracle.impl.OracleSupport;
  * schema and checks that the engine stores that instance and answers about it the way the ER
  * diagram says it should.
  *
- * <p>Every other oracle in DDLSmith asks a question about one statement, one constraint or one
+ * <p>Every other oracle in DDLsmith asks a question about one statement, one constraint or one
  * table. This one asks the question the whole pipeline was built to make answerable: <em>given the
  * graph instance the schema was derived from, does the database behave like the schema the ER
  * diagram describes?</em> The graph is the ground truth, and it is not a second engine, not a
@@ -63,7 +63,7 @@ import org.ddlsmith.oracle.impl.OracleSupport;
  * generated instance is a legal instance of the ER diagram ({@code CardinalityEnforcer}), the mapper
  * is validated over tens of thousands of mappings (its invariants, its self-check and its drop
  * ledger), and the materialization is deterministic and derived from the graph rather than from the
- * engine. So a disagreement is either the engine not implementing what it accepted, or DDLSmith
+ * engine. So a disagreement is either the engine not implementing what it accepted, or DDLsmith
  * being wrong about what it asked for — and the second case is not hidden: it is what the census of
  * a run measures.</p>
  *

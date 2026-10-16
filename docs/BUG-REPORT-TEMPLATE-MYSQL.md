@@ -1,16 +1,15 @@
 # The `bugs.mysql.com` bug report template
 
-How to fill the tracker's *Report a Bug* page when filing a finding from [`bugs/mysql/`](../bugs/mysql)
-with Oracle. The field names, their order and the asterisks are the page's own; the four fields the
+How to fill the tracker's *Report a Bug* page when filing a finding with Oracle. The field names,
+their order and the asterisks are the page's own; the four fields the
 page marks required are `Synopsis`, `Category`, `Description` and `How to repeat`.
 
 The page is a plain text form. It renders no Markdown, so `#`, `**`, backticks, pipe tables and code
 fences reach the developer as literal characters. Every field body below is therefore written as plain
 text, and the skeleton can be pasted as it stands.
 
-Two reports are filled in this way already and are worth copying from:
-[`003`](../bugs/mysql/003-cascading-delete-refused-when-a-self-referencing-cascade-chain-is-three-rows-deep.md)
-and [`004`](../bugs/mysql/004-self-referencing-composite-foreign-key-not-enforced.md).
+The reports this template was written against (`003` and `004`) are no longer part of the repository;
+the skeleton below stands on its own.
 
 ## How to fill it
 
@@ -36,7 +35,7 @@ and [`004`](../bugs/mysql/004-self-referencing-composite-foreign-key-not-enforce
 | `Description` | * | **see below** | *Why this is a bug*, in the report's words |
 | `How to repeat` | * | **see below** | *The minimal reproduction* |
 | `Suggested fix` | | two lines at most, or empty | the report's repair notes, if any |
-| `Private comment` | | the DDLSmith command line, the seed, the log path, anything private. `(empty)` is fine. | the replay evidence; never the defect itself |
+| `Private comment` | | the DDLsmith command line, the seed, the log path, anything private. `(empty)` is fine. | the replay evidence; never the defect itself |
 
 ## `Description` *
 
@@ -58,7 +57,7 @@ Actual:   <what happens instead>
   `the optimiser picks the wrong index` is a guess nobody verified.
 * A comparison is the strongest evidence there is, and costs three lines: the same statement on
   another version or setting, with the outcome of each.
-* Leave out: how the defect was found, what DDLSmith is, which oracle fired, how many seeds hit it,
+* Leave out: how the defect was found, what DDLsmith is, which oracle fired, how many seeds hit it,
   what a fix might look like, and the SQL (that is the next field). One clause of what was ruled out
   is allowed if it narrows the trigger.
 * No Markdown: no `#`, no `**`, no backticks, no pipe tables, no bullet characters beyond a leading `-`.
@@ -95,7 +94,7 @@ Steps a developer follows, then one block they paste into the `mysql` client.
 * Indent the block two spaces so it stands apart from the steps. No Markdown fences, no headings.
 * Longer than about 25 lines: put it in `bug-repro-<id>.sql`, submit the text first, then attach the
   file to the report and say `Attached as bug-repro-004.sql.`
-* The developer must not need DDLSmith: no `java -jar` line here. The command line that replays the
+* The developer must not need DDLsmith: no `java -jar` line here. The command line that replays the
   run goes in `Private comment`.
 
 ## `Suggested fix`
@@ -105,7 +104,7 @@ answer. Do not speculate about the implementation unless you read it.
 
 ## `Private comment`
 
-The only place for what the public should not see: the DDLSmith command line that replays the run, the
+The only place for what the public should not see: the DDLsmith command line that replays the run, the
 seed, the `logs/` file, sensitive data, and whether the tracker could be searched
 (`bugs.mysql.com returned HTTP 403 from this environment`, plus what a public search found).
 
@@ -199,10 +198,10 @@ How to repeat *:
 
 | Written | Why it fails | Instead |
 | ------- | ------------ | ------- |
-| `During a 12-hour campaign DDLSmith generated 400 databases, and the oracle...` | history of the search; the developer cannot use it | the two statements that fail |
+| `During a 12-hour campaign DDLsmith generated 400 databases, and the oracle...` | history of the search; the developer cannot use it | the two statements that fail |
 | a 60-line `Description` with the log pasted in | the trigger is buried in the middle | the error line, the comparison, the trigger |
 | `**Expected:** ...` or backticks | the page prints the asterisks and the backticks | `Expected: ...` |
-| a reproducer that starts with `java -jar target/DDLSmith.jar ...` | the maintainer does not have the run, the seed or the generated schema | self-contained SQL; command line in `Private comment` |
+| a reproducer that starts with `java -jar target/DDLsmith.jar ...` | the maintainer does not have the run, the seed or the generated schema | self-contained SQL; command line in `Private comment` |
 | `the optimiser probably drops the check` | unverified, and a wrong guess discredits the report | what was observed |
 | `INSERT INTO <your table> ...` | not runnable | literal names and values |
 | headings such as `Environment` or `Analysis` in a field | the page has no headings, and the other fields already hold the environment | the shapes above |
@@ -216,7 +215,7 @@ How to repeat *:
       screen.
 - [ ] `How to repeat` is a numbered list plus one SQL block that runs top to bottom on a clean server.
 - [ ] No Markdown in any field: no `#`, `**`, backticks, pipe tables or fences.
-- [ ] No word about DDLSmith, oracles, seeds or campaigns in `Description` or `How to repeat`.
+- [ ] No word about DDLsmith, oracles, seeds or campaigns in `Description` or `How to repeat`.
 - [ ] The failing statements were run again exactly as written, not reconstructed from memory.
 - [ ] The tracker was searched for the duplicate keywords, and the outcome is recorded in
       `Private comment`.

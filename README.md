@@ -1,13 +1,13 @@
-# DDLSmith
+# DDLsmith
 
 **Random graph → ER diagram → relational schema → DDL testing.**
 
-DDLSmith generates complex random graphs, interprets them as ER diagrams (nodes are entities, edges
+DDLsmith generates complex random graphs, interprets them as ER diagrams (nodes are entities, edges
 are relationships), maps those diagrams to relational schemas with the classic ER-to-relational
 algorithm, and then tests whether real database engines implement the resulting DDL correctly.
 
 It is inspired by [GDsmith](https://github.com/GAIA-UNSW/GDsmith), which tests *graph* database
-engines by generating random property graphs and Cypher queries. DDLSmith takes the same
+engines by generating random property graphs and Cypher queries. DDLsmith takes the same
 generation machinery and points it at a different target: instead of asking "does this engine
 answer Cypher queries correctly?", it asks **"does this engine's DDL mean what it says?"**
 
@@ -31,7 +31,7 @@ A property graph and an ER diagram are structurally the same object:
 
 So the well-studied problem of *generating complex random graphs* can be reused to generate
 *complex, realistic, non-trivial relational schemas* — which is exactly what a DDL test oracle
-needs as input. That is the whole point of DDLSmith.
+needs as input. That is the whole point of DDLsmith.
 
 The generation pipeline:
 
@@ -110,14 +110,14 @@ the failures are silent rather than loud:
   foreign keys **off by default**; MySQL before 8.0.16 parsed and ignored `CHECK`; DuckDB's foreign
   key enforcement has changed between releases).
 
-DDLSmith targets exactly these, with black-box oracles that only use SQL any client could send.
+DDLsmith targets exactly these, with black-box oracles that only use SQL any client could send.
 
 ## 3. Oracles
 
 | Oracle | What it catches |
 | ------ | --------------- |
 | `crash` | A statement the engine's own declared feature set says it supports is rejected. Failures are attributed to the specific `DDLFeature` the statement relies on. |
-| `schema-round-trip` | The schema read back from the catalog does not match the schema DDLSmith asked for: missing/extra columns, wrong type, wrong nullability, wrong default, lost key, lost constraint, lost referential action. |
+| `schema-round-trip` | The schema read back from the catalog does not match the schema DDLsmith asked for: missing/extra columns, wrong type, wrong nullability, wrong default, lost key, lost constraint, lost referential action. |
 | `differential-schema` | Two engines disagree about the same generated schema (compared by type *category*, so spelling differences are not noise). |
 | `constraint-enforcement` | A declared PRIMARY KEY / UNIQUE / NOT NULL / CHECK / FOREIGN KEY accepts a row that violates it. |
 | `referential-action` | `ON DELETE` / `ON UPDATE` behaviour does not match the declaration (no cascade where `CASCADE` was declared, no rejection where `RESTRICT` was declared, …). |
@@ -164,20 +164,20 @@ nothing while the engine defect `bugs/mysql/005` was in front of it, and where i
 mvn clean package
 ```
 
-This produces `target/DDLSmith.jar`, a self-contained executable jar.
+This produces `target/DDLsmith.jar`, a self-contained executable jar.
 
 ## 6. Quick start
 
-Run DDLSmith against an embedded SQLite database, generating 20 ER diagrams:
+Run DDLsmith against an embedded SQLite database, generating 20 ER diagrams:
 
 ```shell
-java -jar target/DDLSmith.jar sqlite --num-tries 20 --num-ddl 40
+java -jar target/DDLsmith.jar sqlite --num-tries 20 --num-ddl 40
 ```
 
 Differential testing across three embedded engines — no infrastructure required:
 
 ```shell
-java -jar target/DDLSmith.jar sqlite --num-tries 20 --algorithm differential --compare-with h2,duckdb
+java -jar target/DDLsmith.jar sqlite --num-tries 20 --algorithm differential --compare-with h2,duckdb
 ```
 
 ### Where findings go
@@ -201,26 +201,27 @@ MISSING_INDEX at t_0_r.idx([t_0_a1, a2])
 Those are filed as **one** report whose occurrence count is the evidence. Each report carries the
 engine and version, a confidence level, whether it is a suspected cascade of another defect, the
 engine's own words, a **minimal reproduction** reduced to the statements the failure depends on, and the
-command that reproduces the run. See [bugs/README.md](bugs/README.md) for the format.
+command that reproduces the run. The layout is produced by `org.ddlsmith.bug.BugRepository`, and
+`docs/BUG-REPORT-TEMPLATE-MYSQL.md` maps it onto a public tracker page.
 
 `--bug-dir <dir>` chooses the directory (default `bugs`); `--bug-dir off` disables filing.
 
 Stress `ALTER TABLE` with schema evolution, verifying the catalog after every step:
 
 ```shell
-java -jar target/DDLSmith.jar h2 --algorithm evolution --evolve-steps 25 --num-tries 10
+java -jar target/DDLsmith.jar h2 --algorithm evolution --evolve-steps 25 --num-tries 10
 ```
 
 Probe every declared constraint by trying to violate it:
 
 ```shell
-java -jar target/DDLSmith.jar duckdb --algorithm constraints --oracle ALL --num-tries 10
+java -jar target/DDLsmith.jar duckdb --algorithm constraints --oracle ALL --num-tries 10
 ```
 
 Just print the generated DDL, without any database:
 
 ```shell
-java -jar target/DDLSmith.jar postgres --print-ddl-only --random-seed 42
+java -jar target/DDLsmith.jar postgres --print-ddl-only --random-seed 42
 ```
 
 That prints one script per database of the graph group, which is 8 scripts by default — the same graph
@@ -229,13 +230,13 @@ read eight ways. Add `--databases-per-graph 1` to get the single script the seed
 Replay a recorded failure:
 
 ```shell
-java -jar target/DDLSmith.jar sqlite --reproduce logs/sqlite/database0-failure-001-schema_mismatch.log
+java -jar target/DDLsmith.jar sqlite --reproduce logs/sqlite/database0-failure-001-schema_mismatch.log
 ```
 
 Reproduce a specific run exactly (every random decision flows through the seed):
 
 ```shell
-java -jar target/DDLSmith.jar sqlite --random-seed 42 --num-tries 1
+java -jar target/DDLsmith.jar sqlite --random-seed 42 --num-tries 1
 ```
 
 ## 7. Command line reference
@@ -310,7 +311,7 @@ Multiple entries for the same engine let you compare two *versions* of one engin
 classic differential-testing setup:
 
 ```shell
-java -jar target/DDLSmith.jar postgres --algorithm differential --compare-with postgres@16
+java -jar target/DDLsmith.jar postgres --algorithm differential --compare-with postgres@16
 ```
 
 ## 9. Supported engines
@@ -321,7 +322,7 @@ java -jar target/DDLSmith.jar postgres --algorithm differential --compare-with p
 | H2 | embedded, always available | strict, standards-oriented DDL; 86 of 109 DDL features declared, each derived from an empirical probe |
 | DuckDB | embedded, always available | deliberately partial DDL support; 72 features declared, each derived from an empirical probe |
 | PostgreSQL | client/server | the richest DDL support (100 features); run against a live 18.6 server — eight server-only defects found and fixed; every generated database gets a schema of its own, so a 20-database run creates 20 schemas and no longer collides |
-| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B (see [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md)); three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 and [runs/mysql-campaign/12h-b/REPORT.md](runs/mysql-campaign/12h-b/REPORT.md) |
+| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B (see [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md)); three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 |
 
 ## 10. Verified results
 
@@ -379,7 +380,7 @@ implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
   second round is a seed-for-seed A/B check of the first round's fixes: **648 failures on 48 891
   databases became 2 on 42 938**, and both survivors are engine behaviour rather than tool defects
   (SQLite evaluating a sibling `CASCADE` before `RESTRICT`; DuckDB refusing a row that references
-  itself). Every one of the 422 failure logs of the first round was a DDLSmith defect, and all were
+  itself). Every one of the 422 failure logs of the first round was a DDLsmith defect, and all were
   fixed and re-verified at their own seeds (23 of 23 re-runs clean);
 * SQLite 3 533 / H2 38 000 / DuckDB 3 576 databases — **0 failures** with the default oracle set;
 * differential SQLite/H2/DuckDB 1 522 databases — **0 failures**;
@@ -400,14 +401,13 @@ implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
 * the two-hour MySQL conformance experiment of 2026-10-10 (four rounds, `--oracle ALL` and
   `graph-conformance`, latest MySQL image): **3 506 databases, ≥ 183 000 statements, 13 failures in 4
   distinct classes** — one MySQL defect in the SQL-engine foreign key path (`bugs/mysql/005`, a foreign
-  key is not checked when a column of the index enforcing it is NULL) and three DDLSmith false-positive
-  classes, since fixed and re-measured one database at a time against the pre-fix build:
-  [runs/REPORT-MYSQL-2H.md](runs/REPORT-MYSQL-2H.md), raw A/B output in
-  [runs/verify-mysql-fixes-2h.txt](runs/verify-mysql-fixes-2h.txt).
+  key is not checked when a column of the index enforcing it is NULL) and three DDLsmith false-positive
+  classes, since fixed and re-measured one database at a time against the pre-fix build; the
+  measurements are recorded in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md) §3.
 
 ## 11. Findings about the engines
 
-These came out of building and running DDLSmith, and each is backed by a probe recorded in the
+These came out of building and running DDLsmith, and each is backed by a probe recorded in the
 relevant module's self-check:
 
 * **DuckDB 1.3 cannot store a row that references itself.** The foreign key is checked row by row as
@@ -455,7 +455,7 @@ relevant module's self-check:
   Deleting a referenced parent row produces `INTERNAL Error: Attempted to access index 1 within
   vector of size 1` and then invalidates the entire database instance, after which every statement
   fails with `FATAL Error: Failed: database has been invalidated because of a previous fatal error`.
-  Minimised: the failed statements are not needed to trigger it. DDLSmith avoids the situation by
+  Minimised: the failed statements are not needed to trigger it. DDLsmith avoids the situation by
   keeping generated objects in DuckDB's default namespace.
 * **H2 collapses `RESTRICT` and `NO ACTION`.** `REFERENTIAL_CONSTRAINTS.DELETE_RULE` is `RESTRICT`
   for a plain foreign key, for an explicit `ON DELETE NO ACTION` and for an explicit
@@ -464,7 +464,7 @@ relevant module's self-check:
   `NO ACTION`.
 * **H2 cannot index a large-object column, and will not create a table whose key is one.** A
   `CHARACTER LARGE OBJECT` column in a primary key, unique constraint or index makes the whole
-  `CREATE TABLE` fail with `Feature not supported: Index on column`. DDLSmith substitutes a bounded
+  `CREATE TABLE` fail with `Feature not supported: Index on column`. DDLsmith substitutes a bounded
   character type for key columns and drops such columns from indexes.
 * **H2 refuses a generated column that is based on another generated column.** `a1 … GENERATED
   ALWAYS AS (a0 + 1)` is accepted, and `a2 … GENERATED ALWAYS AS (a1 + 1)` makes the whole
@@ -480,7 +480,7 @@ relevant module's self-check:
 * **H2 rewrites expressions.** `dtype IN ('E3')` comes back as `dtype = 'E3'` and a multi-value
   `dtype IN ('E2', 'E4')` as `"DTYPE" IN('E2', 'E4')` (quoted column, no space after the keyword),
   `NOT (a>0)` as `a<=0`, conjunctions are reordered, functions are renamed and constants folded, and
-  a view's join predicate moves into a `WHERE` clause leaving `ON 1=1` behind. DDLSmith's comparison
+  a view's join predicate moves into a `WHERE` clause leaving `ON 1=1` behind. DDLsmith's comparison
   canonicalizes these; the H2 self-check prints the rewrites it knows it cannot undo.
 * **DuckDB parenthesises the operands of a disjunction.** The union-membership check of a category,
   declared as `CHECK (a IS NOT NULL OR b IS NOT NULL)`, is reported back as
@@ -558,24 +558,23 @@ relevant module's self-check:
   to violate a constraint* finds them — which is why the twelve-hour bug-hunting campaign of 2026-10-06
   gave the `constraint-enforcement` family three of its ten categories and ran the same seed blocks
   against both foreign key paths of one server version, so that a disagreement between them needs no
-  cross-version confound. See [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md) and
-  [runs/mysql-campaign/12h-b/REPORT.md](runs/mysql-campaign/12h-b/REPORT.md).
-* **MySQL compares strings its own way unless it is told otherwise, and DDLSmith now tells it.** The
+  cross-version confound. See [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md).
+* **MySQL compares strings its own way unless it is told otherwise, and DDLsmith now tells it.** The
   server default (`utf8mb4_0900_ai_ci`) is case- and accent-insensitive, so a `UNIQUE` column accepted
   `'HF'` and then refused `'hf'`, `CHECK (a <> 'x')` refused `'X'`, and `ENUM('a','A')` was refused at
-  `CREATE TABLE` time — none of which is what the schema DDLSmith asked for means. Generated MySQL
+  `CREATE TABLE` time — none of which is what the schema DDLsmith asked for means. Generated MySQL
   schemas therefore declare `COLLATE utf8mb4_0900_bin` on every character column
   (`Dialect.getStringCollation`, applied by `SchemaAdapter`): code-point ordered and `NO PAD`, which is
   exactly Java's `String.equals`, and available from MySQL 8.0.17. That comparison mismatch produced
-  five of the thirteen findings of the two-hour conformance experiment, all of them DDLSmith's own; the
+  five of the thirteen findings of the two-hour conformance experiment, all of them DDLsmith's own; the
   fix, the two other false-positive classes it was found with, and their measurement one database at a
-  time are in [runs/REPORT-MYSQL-2H.md](runs/REPORT-MYSQL-2H.md) §7.
+  time are recorded in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md) §3 (defect 10).
 * **DuckDB does not preserve character lengths or numeric precision**: `VARCHAR(3)` is stored and
   reported as `VARCHAR`, so its schema comparison falls back to type categories.
 
 ## 12. Status and limitations
 
-DDLSmith's **core is complete and verified**: the graph → ER → relational → DDL pipeline, all five
+DDLsmith's **core is complete and verified**: the graph → ER → relational → DDL pipeline, all five
 dialects, all five introspectors, and the `crash`, `schema-round-trip`, `differential-schema` and
 `idempotence` oracles. The `random` and `differential` algorithms are the supported entry points.
 
@@ -628,7 +627,7 @@ ER/EER feature with its textbook definition, Chen notation, mapping rule and SQL
 verifies the catalog after each one. It found and helped fix several real defects (name collisions
 with `IF NOT EXISTS` silently skipping creation, unqualified `ALTER TABLE`/`CREATE INDEX`/`CREATE VIEW`
 references, an engine's silent `DROP NOT NULL`, and a dozen generator defects that made it report the
-engine for DDLSmith's own mistakes). The last of those were removed in the second acceptance session:
+engine for DDLsmith's own mistakes). The last of those were removed in the second acceptance session:
 a column named by a `CHECK` constraint is no longer dropped, a `DECIMAL` is no longer widened past
 what the engine accepts, and the metamorphic relation no longer picks an action whose inverse the
 engine cannot express. It then ran **955 databases across SQLite, H2 and DuckDB with 0 failures**,
@@ -667,7 +666,7 @@ run test more than one database against a server — a 20-database run creates 2
 on each engine and no longer collides. What was left was a normalisation tail in how the two catalogs
 spell CHECK expressions, indexes and view definitions back. **That tail has since been cleared and
 measured**: a 923-database MySQL census found 1 057 failures in 11 defect classes, all of them
-DDLSmith's own, which reduced to four root causes — MySQL backslash-escapes the quotes in the CHECK
+DDLsmith's own, which reduced to four root causes — MySQL backslash-escapes the quotes in the CHECK
 clause it reports, reports a unique index as a UNIQUE constraint with no index behind it, rewrites a
 view definition three ways, and refuses a CHECK on a column an `ON UPDATE CASCADE` writes (a rule the
 adapter had been missing exactly one action of, which alone accounted for 327 of the 1 499 defect
@@ -688,7 +687,7 @@ All are fixed. On the final build the campaign is **801 databases and 534 DDL re
 findings** — the trusted oracle set (`crash`, `schema-round-trip`, `idempotence`,
 `differential-schema`, `metamorphic-alter`) reports nothing. A later review of those three found that
 two are a **documented MySQL deviation** (self-referencing `ON UPDATE CASCADE` acting like `RESTRICT`,
-now filed as `bugs/mysql/001`) and the third was a DDLSmith defect in how a key tuple containing a
+now filed as `bugs/mysql/001`) and the third was a DDLsmith defect in how a key tuple containing a
 temporal column was compared — the model's `java.sql.Timestamp` and the driver's
 `java.time.LocalDateTime` were being compared as text. That one is fixed, with a regression test, and
 the two remaining findings now carry the engine's own words. See
@@ -742,6 +741,10 @@ docs/                             DESIGN.md (the pipeline), ER-MODEL.md (the ER 
                                   ACCEPTANCE*.md (measured runs)
 ```
 
+The campaign evidence trees — `runs/` (the harness and each round's scratch), `bugs/` (the filed
+defect reports) and `logs/` (the failure logs) — are produced by a run rather than shipped with the
+repository; the reports under `docs/` quote the paths where that evidence lived.
+
 ## 14. Adding an engine
 
 1. Write a `Dialect` (extend `AbstractDialect`) and declare the engine's real `DDLFeatureSet`.
@@ -752,14 +755,14 @@ docs/                             DESIGN.md (the pipeline), ER-MODEL.md (the ER 
    provider in `dbms/ProviderCatalog`.
 5. Add a `config.json` entry.
 
-The feature set is the contract between the generator and the engine: DDLSmith only emits what the
+The feature set is the contract between the generator and the engine: DDLsmith only emits what the
 engine claims to support, and anything the engine rejects despite claiming support is a finding.
 Getting this list right matters, so it should be derived from empirical probes rather than from
 documentation — the engine modules' self-checks do exactly that.
 
 ## 15. Relationship to GDsmith
 
-| GDsmith | DDLSmith |
+| GDsmith | DDLsmith |
 | ------- | -------- |
 | generates property graphs | generates property graphs (same idea, six generators) |
 | extracts regions and patterns from the graph | interprets the graph as an ER diagram |
@@ -768,13 +771,13 @@ documentation — the engine modules' self-checks do exactly that.
 | crash oracle, non-empty-result oracle | crash, round-trip, constraint, referential-action, metamorphic and data oracles |
 | `logs/<dbms>/<db>.log` reproduction logs | same, plus `--reproduce` to replay them |
 
-The key difference is the target: GDsmith tests *query* evaluation, DDLSmith tests *schema*
-semantics. DDLSmith also keeps GDsmith's guiding principle that generated inputs should be
+The key difference is the target: GDsmith tests *query* evaluation, DDLsmith tests *schema*
+semantics. DDLsmith also keeps GDsmith's guiding principle that generated inputs should be
 *complex* — because the interesting engine defects live at the boundary between the cases an engine
 handles routinely and the cases it does not.
 
 ## 16. License and provenance
 
-DDLSmith is a research tool. Its architecture and several of its idioms (seeded `Randomly`,
+DDLsmith is a research tool. Its architecture and several of its idioms (seeded `Randomly`,
 provider/global-state split, `logs/` reproduction files, differential testing across engines) follow
 GDsmith/SQLancer.

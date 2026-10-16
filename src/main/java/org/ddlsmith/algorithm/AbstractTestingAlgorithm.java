@@ -26,7 +26,7 @@ import org.ddlsmith.oracle.StatementRunner;
 import org.ddlsmith.oracle.TestOracle;
 
 /**
- * Shared machinery of the DDLSmith algorithms: it wires the generation pipeline to a database,
+ * Shared machinery of the DDLsmith algorithms: it wires the generation pipeline to a database,
  * executes the generated script while recording every outcome, opens the additional databases
  * needed for differential testing, and runs the oracles.
  */
@@ -82,7 +82,7 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
             }
             String name = state.getDatabaseName() + "_" + target.getDBMSName();
             try {
-                org.ddlsmith.DDLSmithDBConnection connection = Targets.open(target, name);
+                org.ddlsmith.DDLsmithDBConnection connection = Targets.open(target, name);
                 // The common schema is deliberately unqualified (CommonDialect.getEffectiveSchemaName
                 // returns null), so every participant creates its objects in whatever namespace its
                 // connection is pointed at. For an engine that keeps all of a run's generated databases
@@ -187,7 +187,7 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
      * asked for the same thing. For an embedded engine both the drop and the create are empty — its
      * URL gave it a database of its own — so nothing changes there.</p>
      */
-    protected void runSessionSetup(OracleContext context, org.ddlsmith.DDLSmithDBConnection connection,
+    protected void runSessionSetup(OracleContext context, org.ddlsmith.DDLsmithDBConnection connection,
             Dialect dialect, String databaseName, String namespace) {
         List<String> statements = new ArrayList<>();
         statements.addAll(dialect.dropNamespaceStatements(namespace));
@@ -239,7 +239,7 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
      *
      * <p>This is the exact script the engine is about to receive, rendered by that engine's dialect,
      * which makes it the right artefact for a bug report: it can be pasted into the engine's own
-     * client without DDLSmith in the loop.</p>
+     * client without DDLsmith in the loop.</p>
      */
     private void dumpDdl(OracleContext context, DatabaseUnderTest database, List<DDLStatement> script) {
         String directory = options.getDdlDumpDir();
@@ -250,7 +250,7 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
         String fileName = database.getName().replaceAll("[^A-Za-z0-9_.-]", "_") + ".sql";
         java.nio.file.Path target = java.nio.file.Paths.get(directory).resolve(fileName);
         List<String> lines = new ArrayList<>();
-        lines.add("-- DDLSmith generated DDL");
+        lines.add("-- DDLsmith generated DDL");
         lines.add("-- database : " + database.getName());
         lines.add("-- dialect  : " + database.getDialect().getName());
         lines.add("-- version  : " + database.getDatabaseVersion());
@@ -291,7 +291,7 @@ public abstract class AbstractTestingAlgorithm implements TestingAlgorithm {
             } catch (Exception e) {
                 failures.add(new OracleFailure(OracleFailure.FailureKind.UNEXPECTED_ERROR, oracle.getName(),
                         "oracle " + oracle.getName() + " threw an exception",
-                        "The oracle itself failed, which usually indicates a defect in DDLSmith rather than in the "
+                        "The oracle itself failed, which usually indicates a defect in DDLsmith rather than in the "
                                 + "database under test.",
                         null, context.getSeed(), describeDatabases(context), e));
             }

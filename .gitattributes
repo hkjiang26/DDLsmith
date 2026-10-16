@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# DDLSmith line-ending policy
+# DDLsmith line-ending policy
 #
 # Every text file is stored and checked out as LF, which is what the working
 # tree already uses. This is stated here rather than left to core.autocrlf

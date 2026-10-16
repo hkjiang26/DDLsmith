@@ -22,7 +22,7 @@ public enum DDLFeature {
     /**
      * The engine validates that a foreign key's target table already exists when the referencing
      * table is created. Engines without this behaviour (SQLite) accept forward references, so a
-     * reference cycle between two tables needs no special handling there. Where it is set, DDLSmith
+     * reference cycle between two tables needs no special handling there. Where it is set, DDLsmith
      * creates the referencing table without the cycle-closing foreign key and adds it afterwards
      * with {@code ALTER TABLE}, or drops it when the engine cannot add constraints after creation.
      */

@@ -257,7 +257,7 @@ public final class OracleSupport {
      * True when a referential action difference is only the spelling of "leave the parent row
      * alone".
      *
-     * <p>DDLSmith never renders an {@code ON DELETE}/{@code ON UPDATE} clause for
+     * <p>DDLsmith never renders an {@code ON DELETE}/{@code ON UPDATE} clause for
      * {@link org.ddlsmith.common.schema.ReferentialAction#NO_ACTION} (see the dialect's
      * {@code renderReferentialActions}), so NO_ACTION means "no clause was written" and the engine
      * answers with its own default: H2 reports {@code RESTRICT} for a foreign key declared with no

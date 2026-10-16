@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -102,7 +102,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
     }
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String schema = schemaName == null ? DEFAULT_SCHEMA : normalize(schemaName);
         RelationalSchema result = new RelationalSchema(schema);
 
@@ -124,7 +124,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ columns */
 
-    private void readColumns(DDLSmithDBConnection connection, String schema, Table table) throws SQLException {
+    private void readColumns(DDLsmithDBConnection connection, String schema, Table table) throws SQLException {
         // duckdb_columns() is preferred over information_schema.columns: it carries the comment and
         // reports nullability for real (a primary key column is is_nullable = false).
         List<Map<String, Object>> rows = query(connection,
@@ -153,7 +153,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ constraints */
 
-    private void readConstraints(DDLSmithDBConnection connection, String schema, Table table) throws SQLException {
+    private void readConstraints(DDLsmithDBConnection connection, String schema, Table table) throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT constraint_type, constraint_name, "
                         + "array_to_string(constraint_column_names, chr(1)) AS constraint_columns, "
@@ -197,7 +197,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ indexes */
 
-    private void readIndexes(DDLSmithDBConnection connection, String schema, Table table) throws SQLException {
+    private void readIndexes(DDLsmithDBConnection connection, String schema, Table table) throws SQLException {
         // array_to_string is used because the driver hands LIST columns back in three different
         // shapes depending on the table function: a DuckDBArray here, a String[] there, and the
         // rendered "[a, b]" text elsewhere. chr(1) cannot occur in an identifier or expression.
@@ -269,7 +269,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ views */
 
-    private void readViews(DDLSmithDBConnection connection, String schema, RelationalSchema result)
+    private void readViews(DDLsmithDBConnection connection, String schema, RelationalSchema result)
             throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT view_name, sql FROM duckdb_views() WHERE schema_name = ? AND NOT internal", schema);
@@ -319,7 +319,7 @@ public class DuckDbIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ sequences */
 
-    private void readSequences(DDLSmithDBConnection connection, String schema, RelationalSchema result)
+    private void readSequences(DDLsmithDBConnection connection, String schema, RelationalSchema result)
             throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "SELECT sequence_name, start_value, increment_by, min_value, max_value, cycle "

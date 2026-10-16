@@ -24,7 +24,7 @@ import org.ddlsmith.introspection.SchemaIntrospector;
 import org.ddlsmith.introspection.SchemaNormalizer;
 
 /**
- * End-to-end smoke check for the whole DDLSmith pipeline.
+ * End-to-end smoke check for the whole DDLsmith pipeline.
  *
  * <p>It runs, for every embedded engine:</p>
  * <ol>
@@ -47,7 +47,7 @@ public final class EndToEndCheck {
         long seed = args.length > 0 ? Long.parseLong(args[0]) : 20240101L;
         int rounds = args.length > 1 ? Integer.parseInt(args[1]) : 3;
 
-        System.out.println("DDLSmith end-to-end check (seed=" + seed + ", rounds=" + rounds + ")");
+        System.out.println("DDLsmith end-to-end check (seed=" + seed + ", rounds=" + rounds + ")");
         System.out.println("================================================================================");
 
         for (String engine : List.of("sqlite", "h2", "duckdb")) {
@@ -90,7 +90,7 @@ public final class EndToEndCheck {
 
             DatabaseConfig target = Targets.primary(engine, options);
             String databaseName = "e2e_" + engine + "_" + round;
-            try (DDLSmithDBConnection connection = Targets.open(target, databaseName)) {
+            try (DDLsmithDBConnection connection = Targets.open(target, databaseName)) {
                 for (String setup : dialect.getSessionSetupStatements()) {
                     connection.executeStatement(setup);
                 }
@@ -176,7 +176,7 @@ public final class EndToEndCheck {
                 Dialect dialect = Dialects.forName(engine);
                 SchemaIntrospector introspector = Introspectors.forName(engine);
                 DatabaseConfig target = Targets.primary(engine, options);
-                try (DDLSmithDBConnection connection = Targets.open(target, "diff_" + engine + "_" + round)) {
+                try (DDLsmithDBConnection connection = Targets.open(target, "diff_" + engine + "_" + round)) {
                     for (String setup : dialect.getSessionSetupStatements()) {
                         connection.executeStatement(setup);
                     }
@@ -254,7 +254,7 @@ public final class EndToEndCheck {
             schemas.add(generated.adaptedSchema.getStatistics().toString());
 
             DatabaseConfig target = Targets.primary(engine, options);
-            try (DDLSmithDBConnection connection = Targets.open(target, "exp_" + engine + "_" + index)) {
+            try (DDLsmithDBConnection connection = Targets.open(target, "exp_" + engine + "_" + index)) {
                 for (String setup : dialect.getSessionSetupStatements()) {
                     connection.executeStatement(setup);
                 }
@@ -312,7 +312,7 @@ public final class EndToEndCheck {
 
     /** A state with no connection, used to drive the pipeline from the check. */
     private static final class HeadlessState
-            extends GlobalState<org.ddlsmith.dbms.ConnectionOptions, DDLSmithDBConnection> {
+            extends GlobalState<org.ddlsmith.dbms.ConnectionOptions, DDLsmithDBConnection> {
         HeadlessState(MainOptions options) {
             this(options, 0);
         }

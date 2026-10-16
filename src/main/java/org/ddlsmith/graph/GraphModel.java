@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * A randomly generated directed multigraph: the object that DDLSmith interprets as an ER diagram.
+ * A randomly generated directed multigraph: the object that DDLsmith interprets as an ER diagram.
  *
  * <p>Nodes carry a label (their "type") and property values; edges are directed, carry a
  * relationship type and property values. Parallel edges and self-loops are allowed, because they

@@ -7,7 +7,7 @@ import org.ddlsmith.common.log.LoggableFactory;
  * how to connect to it, how to render DDL for it, how to introspect its catalog, and which
  * algorithm is used to generate and test databases.
  */
-public interface DatabaseProvider<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLSmithDBConnection> {
+public interface DatabaseProvider<G extends GlobalState<O, C>, O extends DBMSSpecificOptions<?>, C extends DDLsmithDBConnection> {
 
     /** The name used on the command line; must be lowercase. */
     String getDBMSName();

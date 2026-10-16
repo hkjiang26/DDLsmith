@@ -1,4 +1,4 @@
-# ER feature audit — what DDLSmith cannot yet generate or map
+# ER feature audit — what DDLsmith cannot yet generate or map
 
 This document is the **gap analysis** behind [ER-MODEL.md](ER-MODEL.md). Where that document says
 what the ER layer *does*, this one says what it *does not*, with the evidence for each claim.
@@ -498,7 +498,7 @@ first.
 | --------- | ---------------- | ------------------------------- |
 | **Subset constraint** | `R1 ⊆ R2`: every instance of one relationship is also an instance of another | maps to a `CHECK`/trigger or a redundant FK; a classic source of "the constraint is declared but not enforced" |
 | **Exclusion constraint** | two relationships (or specializations) must not share an instance | maps to a disjointness `CHECK` across two tables |
-| **Composition** | a stronger aggregation in which the part cannot exist without the whole | maps to `NOT NULL` + `ON DELETE CASCADE` on the identifying FK; distinct from aggregation, which DDLSmith already has |
+| **Composition** | a stronger aggregation in which the part cannot exist without the whole | maps to `NOT NULL` + `ON DELETE CASCADE` on the identifying FK; distinct from aggregation, which DDLsmith already has |
 | **Predicate-defined / attribute-defined specialization** | subclasses defined by a condition on an attribute (`salary > 100000`) | the only EER construct whose natural mapping is a `CHECK` on the subtype table; today only a discriminator *name* is recorded (`EREntity.discriminatorAttribute`), with no predicate |
 | **Ordered relationship / ordered multi-valued attribute** | the values of a multi-valued attribute have a meaningful order | maps to an extra ordinal column that participates in the key of the multi-valued table |
 | **Attribute default value** | a declared default for an attribute | `DEFAULT` clauses are a first-class DDL feature the oracles probe, but no ER attribute can carry one |
@@ -515,7 +515,7 @@ it to every lattice component in the diagram.
 inside one lattice: the choice is **per specialization**, not per schema. That is what makes a
 lattice interesting — one subtype may live in the supertype's table while a sibling gets its own.
 
-*Consequence.* DDLSmith can never produce a mixed lattice, so the most intricate shape the textbook
+*Consequence.* DDLsmith can never produce a mixed lattice, so the most intricate shape the textbook
 discusses is out of reach. The generator randomizes the strategy per run, which gives cross-schema
 variety but not within-schema variety.
 

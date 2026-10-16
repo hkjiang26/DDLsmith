@@ -7,7 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The connection settings of one database that DDLSmith can test.
+ * The connection settings of one database that DDLsmith can test.
  *
  * <p>Entries are keyed like GDsmith's {@code config.json}: {@code <dbms>@<label>}, for instance
  * {@code postgres@16} or {@code sqlite@3.49}. The part before the {@code @} identifies the driver
@@ -118,7 +118,7 @@ public class DatabaseConfig {
     }
 
     /**
-     * @param databaseName the logical database name DDLSmith generated; substituted for the
+     * @param databaseName the logical database name DDLsmith generated; substituted for the
      *        {@code {db}} placeholder in a configured URL
      * @return the JDBC URL to connect with
      */

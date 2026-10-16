@@ -33,7 +33,7 @@ class EngineTraitsTest {
         assertEquals(3072, EngineTraits.maxIndexKeyBytes(MYSQL));
         assertEquals(3072, EngineTraits.maxIndexKeyBytes("mariadb"::equals));
         assertEquals(Integer.MAX_VALUE, EngineTraits.maxIndexKeyBytes(POSTGRES),
-                "the other engines impose no limit DDLSmith has to know about");
+                "the other engines impose no limit DDLsmith has to know about");
     }
 
     @Test
@@ -79,7 +79,7 @@ class EngineTraitsTest {
     }
 
     /**
-     * The codes MySQL answers when a statement breaks a limit DDLSmith models. Without this list the
+     * The codes MySQL answers when a statement breaks a limit DDLsmith models. Without this list the
      * crash oracle reported each of them as "the engine rejected a construct it claims to implement",
      * because MySQL states them with SQLState {@code 42000} rather than the "feature not supported"
      * class the oracle can recognise.

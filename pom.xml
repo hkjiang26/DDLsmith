@@ -5,11 +5,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.ddlsmith</groupId>
-  <artifactId>DDLSmith</artifactId>
+  <artifactId>DDLsmith</artifactId>
   <version>1.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
-  <name>DDLSmith</name>
+  <name>DDLsmith</name>
   <description>Random graph -> ER diagram -> relational DDL testing</description>
 
   <properties>
@@ -87,7 +87,7 @@
   </dependencies>
 
   <build>
-    <finalName>DDLSmith</finalName>
+    <finalName>DDLsmith</finalName>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -115,7 +115,7 @@
           </archive>
         </configuration>
       </plugin>
-      <!-- Fat jar: java -jar target/DDLSmith.jar <dbms> ... -->
+      <!-- Fat jar: java -jar target/DDLsmith.jar <dbms> ... -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

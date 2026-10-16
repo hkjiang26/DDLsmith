@@ -297,7 +297,7 @@ class MySqlDialectTest {
     @Test
     void objectsMySqlDoesNotHaveRenderAsSafetyNetComments() {
         assertEquals(MySqlDialect.NO_SCHEMA_SUPPORT, dialect.render(new CreateSchema("s", true)),
-                "MySQL's CREATE SCHEMA creates a database, which is not what DDLSmith models");
+                "MySQL's CREATE SCHEMA creates a database, which is not what DDLsmith models");
         assertEquals(MySqlDialect.NO_SCHEMA_SUPPORT, dialect.render(new DropSchema("s", true, true)),
                 "DROP SCHEMA would drop a database");
         assertEquals(MySqlDialect.NO_SEQUENCE_SUPPORT, dialect.render(new CreateSequence(new Sequence("s"), true)));

@@ -6,7 +6,7 @@ import org.ddlsmith.GlobalState;
 import org.ddlsmith.oracle.OracleFailure;
 
 /**
- * A testing algorithm drives one round of DDLSmith: it generates the ER diagram, maps it to a
+ * A testing algorithm drives one round of DDLsmith: it generates the ER diagram, maps it to a
  * relational schema, executes the DDL and runs the oracles.
  *
  * <p>Different algorithms stress different aspects: plain creation, schema evolution through

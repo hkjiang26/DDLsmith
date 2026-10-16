@@ -95,7 +95,7 @@ public class IdempotenceOracle implements TestOracle {
      * sessions that both find the schema absent both try to insert it, and one fails with
      * {@code duplicate key value violates unique constraint "pg_namespace_nspname_index"}. The oracle
      * reported that as PostgreSQL not honouring the guarantee it declares, when the real cause was
-     * that DDLSmith had asked two concurrent databases about the same name.</p>
+     * that DDLsmith had asked two concurrent databases about the same name.</p>
      */
     private static String scope(String resolvedSchema, DatabaseUnderTest database) {
         // The name has to be unique per *shared namespace*, because that is where two concurrent
@@ -297,7 +297,7 @@ public class IdempotenceOracle implements TestOracle {
 
     /**
      * The scratch table: three columns that cover the interesting column definition paths, and a
-     * primary key so that the table is a realistic DDLSmith table.
+     * primary key so that the table is a realistic DDLsmith table.
      */
     private static Table scratchTable(String schemaName, String tableName) {
         Table table = new Table(schemaName, tableName);

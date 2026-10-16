@@ -177,7 +177,7 @@ class SchemaNormalizerTest {
     /**
      * H2 reports the discriminator CHECK of a single-table ISA hierarchy back as
      * {@code "DTYPE" IN('E2', 'E4')} — quoted column and no space after the keyword. Both are
-     * cosmetic, so they must compare equal to what DDLSmith asked for; before this rule, every
+     * cosmetic, so they must compare equal to what DDLsmith asked for; before this rule, every
      * such hierarchy was reported as a lost CHECK constraint.
      */
     @Test

@@ -1,12 +1,14 @@
-# DDLSmith 验收报告（第二轮会话）
+# DDLsmith 验收报告（第二轮会话）
 
 本报告记录一次完整的「两轮测试 → 定位 → 修复 → 复验」循环。与上一份
 [ACCEPTANCE.md](ACCEPTANCE.md) 的区别在于：本轮**九类测试各跑两次、每次 30 分钟**，两轮的种子区间
 完全相同，因此每一轮都是对上一轮修复的**同种子 A/B 复验**。
 
-* 被测对象：`target/DDLSmith.jar`（Java 17，Maven 构建）
+* 被测对象：`target/DDLsmith.jar`（Java 17，Maven 构建）
 * 环境：Windows，20 逻辑核，15.7 GB 内存；PostgreSQL/MySQL 服务器不可达（5432/3306 均未监听），
   这两者仍只做 `--print-ddl-only` 渲染与单元级验证
+> 注：本文引用的 `runs/`、`bugs/` 证据树与 `logs/` 运行产物已不随仓库分发；文中这些路径是当时的原始记录。
+
 * 编排脚本：`runs/run-round.ps1`（九类并行，每类独立 JVM、独立种子、独立目录、独立超时与硬杀）
 * 定向复验脚本：`runs/verify-round.ps1`（从失败日志里取回引擎、种子与算法参数，在指定构建上原样重跑）
 * 原始数据：`runs/round1/`、`runs/round2/`、`runs/round3/`、`runs/round4/`——每个类别一个子目录，
@@ -47,7 +49,7 @@
 | 2 | sqlite + h2 | `CONSTRAINT_TOO_STRICT` | constraint-enforcement | 工具缺陷 |
 | 1 | h2 | `SCHEMA_MISMATCH` | evolution | 工具缺陷 |
 
-**第一轮 422 条失败全部是 DDLSmith 自身的缺陷，没有一条是引擎缺陷。** 这正是本工具最危险的失效
+**第一轮 422 条失败全部是 DDLsmith 自身的缺陷，没有一条是引擎缺陷。** 这正是本工具最危险的失效
 模式——把工具的错误报成引擎的缺陷——因此本轮的全部工作就是把它们消除。
 
 ---
@@ -343,7 +345,7 @@
    * DuckDB 逐行即时检查外键，因此自引用行永远插不进去——多行 INSERT、可空自引用、先插别的行都不
      例外。H2 2.3.232 与 SQLite 3.49 都接受同一语句（已实测）。对 `NOT NULL` 自引用外键而言，
      DuckDB 上这张表根本无法填充。
-   * DDLSmith 的处理：`RowGenerator.resolveForeignKeys` 只在**没有父行**时才让 NOT NULL 自引用行
+   * DDLsmith 的处理：`RowGenerator.resolveForeignKeys` 只在**没有父行**时才让 NOT NULL 自引用行
      指向自己，因此正常生成路径不会踩到；这条记录的价值在于它解释了历史上那条
      `CONSTRAINT_TOO_STRICT` 的 duckdb 记录。
 
@@ -402,7 +404,7 @@ PostgreSQL 43 次失败 / MySQL 60 次失败，两个引擎**几乎每个数据�
 | 22 | MySQL 拒绝「CHECK 约束引用被外键引用动作使用的列」 | `Column 't_2_id_2' cannot be used in a check constraint 'ck_t_1_1': needed in a foreign key constraint 'fk_t_1_0' referential action`（错误 3823），整张表建不出来 | 新增 `EngineTraits.refusesCheckOnReferentialActionColumn`，`SchemaAdapter` 在渲染前丢弃这类 CHECK 并记 note |
 | 23 | PostgreSQL 把 CHECK 里的数值字面量加引号、把负数字面量写成 `-(27)`，且 `::double precision` 的转换残留 `precision` 一词 | `expected a24 != -1, actual [a24 != '-1']`；`a8 >= ('-32') precision` | `SchemaNormalizer.canonicalExpression`：比较运算符后紧跟的数值字面量去引号（限定在比较运算符之后，避免误伤真正的字符串比较）；cast 正则支持 `double precision` / `character varying` / `with time zone` 这类多词类型名 |
 | 24 | PostgreSQL 的 `pg_get_viewdef` 带结尾分号 | `VIEW_DEFINITION at v_0`：两侧只差一个 `;` | `SchemaNormalizer.canonicalQuery` 去掉结尾分号 |
-| 25 | MySQL 内省器用 DDLSmith 的**逻辑**库名当 schema | 表全部建成却报 `MISSING_TABLE` ×7 | `connection.getDatabaseName()` 是 `database0`，不是 MySQL 的库（`ddlsmith`）；`MySqlIntrospector.resolveSchema` 改为先问 `SELECT DATABASE()`，逻辑名只作兜底 |
+| 25 | MySQL 内省器用 DDLsmith 的**逻辑**库名当 schema | 表全部建成却报 `MISSING_TABLE` ×7 | `connection.getDatabaseName()` 是 `database0`，不是 MySQL 的库（`ddlsmith`）；`MySqlIntrospector.resolveSchema` 改为先问 `SELECT DATABASE()`，逻辑名只作兜底 |
 
 修复后：**PostgreSQL 单库实机运行 0 失败**（44 条语句、默认 oracle 全绿，`runs/live/one/`）。
 MySQL 单库从「7 张表全部 MISSING_TABLE」降到 1 条内容级差异（`information_schema` 返回的 CHECK

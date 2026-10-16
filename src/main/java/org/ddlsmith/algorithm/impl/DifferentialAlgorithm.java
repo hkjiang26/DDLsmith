@@ -17,7 +17,7 @@ import org.ddlsmith.oracle.StatementRunner;
  * Differential DDL testing: the same ER diagram is mapped once, then adapted and created on several
  * engines, and the engines' catalogs are compared against each other.
  *
- * <p>This is the DDLSmith analogue of GDsmith's differential oracle. It is what makes the tool
+ * <p>This is the DDLsmith analogue of GDsmith's differential oracle. It is what makes the tool
  * usable with no infrastructure: {@code --compare-with h2,duckdb} compares SQLite, H2 and DuckDB
  * in-process, and any disagreement about what a schema means is a finding worth investigating.</p>
  */

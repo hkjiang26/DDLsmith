@@ -933,7 +933,7 @@ public final class ConformanceProbeBuilder {
      *         the SQL standard's integrity class, MySQL's CHECK violation — which reports
      *         {@code HY000}/3819 rather than a class {@code 23} SQLSTATE — or SQLite's, which reports no
      *         SQLSTATE at all. Both were measured: MySQL 26.7.0 answers {@code 3819 (HY000)} for
-     *         {@code CHECK (n < 3)}, and SQLite through the JDBC driver DDLSmith uses answers
+     *         {@code CHECK (n < 3)}, and SQLite through the JDBC driver DDLsmith uses answers
      *         {@code [SQLITE_CONSTRAINT_FOREIGNKEY] A foreign key constraint failed (SQLState null, code 19)}.
      */
     public static boolean isIntegrityRejection(ExecutionEvent event) {

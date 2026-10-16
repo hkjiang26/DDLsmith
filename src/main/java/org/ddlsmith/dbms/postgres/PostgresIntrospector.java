@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -39,7 +39,7 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  * <h2>Queries</h2>
  * <ul>
  *   <li>tables: {@code pg_class} with {@code relkind = 'r'}. Partitioned tables ({@code 'p'}) and
- *       foreign tables ({@code 'f'}) are <em>not</em> reported; DDLSmith never creates them, and
+ *       foreign tables ({@code 'f'}) are <em>not</em> reported; DDLsmith never creates them, and
  *       reporting a partitioned table's children as tables would produce spurious differences.</li>
  *   <li>columns: {@code pg_attribute} joined with {@code pg_attrdef}, with
  *       {@code format_type(atttypid, atttypmod)} as the type name.</li>
@@ -65,7 +65,7 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  *       ...) is <em>omitted</em>, and so is any constraint that references it. Omitting is
  *       deliberate: inventing a canonical type would hide the mapper gap, whereas the missing
  *       column shows up as a {@code MISSING_COLUMN} difference in the round-trip oracle.</li>
- *   <li>A foreign key's referenced table is reported without its schema (DDLSmith works inside one
+ *   <li>A foreign key's referenced table is reported without its schema (DDLsmith works inside one
  *       schema), so a cross-schema foreign key would lose the qualification.</li>
  *   <li>{@code pg_get_viewdef} rewrites the view body (qualification, aliases, parentheses), so
  *       {@link SchemaNormalizer#diff} can only match views whose text survives canonicalization.</li>
@@ -135,7 +135,7 @@ public class PostgresIntrospector extends AbstractIntrospector {
     private final PostgresTypeMapper typeMapper = new PostgresTypeMapper();
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String schema = schemaName == null ? "public" : schemaName;
         RelationalSchema result = new RelationalSchema(schema);
 
@@ -192,7 +192,7 @@ public class PostgresIntrospector extends AbstractIntrospector {
                 }
                 if (SchemaNormalizer.isConstraintBackedIndex(index, table)) {
                     // a UNIQUE constraint (or the primary key, already excluded by the query) is
-                    // reported as an index as well; DDLSmith never created it as one
+                    // reported as an index as well; DDLsmith never created it as one
                     continue;
                 }
                 table.addIndex(index);
@@ -226,7 +226,7 @@ public class PostgresIntrospector extends AbstractIntrospector {
         return result;
     }
 
-    private Map<Integer, String> readAttributeNames(DDLSmithDBConnection connection, String schema, String tableName)
+    private Map<Integer, String> readAttributeNames(DDLsmithDBConnection connection, String schema, String tableName)
             throws SQLException {
         Map<Integer, String> names = new TreeMap<>();
         for (Map<String, Object> row : query(connection, COLUMN_NAMES_SQL, qualifiedRelationName(schema, tableName))) {

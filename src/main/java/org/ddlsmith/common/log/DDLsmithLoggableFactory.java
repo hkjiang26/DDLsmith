@@ -3,8 +3,8 @@ package org.ddlsmith.common.log;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
-/** The default log format of DDLSmith: plain SQL, one statement per line. */
-public class DDLSmithLoggableFactory implements LoggableFactory {
+/** The default log format of DDLsmith: plain SQL, one statement per line. */
+public class DDLsmithLoggableFactory implements LoggableFactory {
 
     @Override
     public Loggable createLoggable(String input) {
@@ -26,7 +26,7 @@ public class DDLSmithLoggableFactory implements LoggableFactory {
     @Override
     public Loggable getInfo(String databaseName, String databaseVersion, long seedValue) {
         StringBuilder sb = new StringBuilder();
-        sb.append("-- DDLSmith reproduction log\n");
+        sb.append("-- DDLsmith reproduction log\n");
         sb.append("-- database : ").append(databaseName).append('\n');
         sb.append("-- version  : ").append(databaseVersion).append('\n');
         sb.append("-- seed     : ").append(seedValue).append('\n');

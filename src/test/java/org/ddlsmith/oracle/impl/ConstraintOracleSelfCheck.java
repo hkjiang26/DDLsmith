@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
@@ -33,7 +33,7 @@ import org.ddlsmith.oracle.TestOracle;
  * TEST SCAFFOLDING - runs the constraint, referential-action, default-value, metamorphic and
  * pivot-row oracles against real in-memory SQLite and H2 databases created with plain JDBC.
  *
- * <p>It exists because the rest of DDLSmith is written in parallel: instead of a full DDLSmith
+ * <p>It exists because the rest of DDLsmith is written in parallel: instead of a full DDLsmith
  * round it materializes a hand-made {@link RelationalSchema} with the local test dialects
  * ({@link TestSqliteDialect}, {@link TestH2Dialect}) and introspects it with the local introspectors
  * ({@link TestSqliteIntrospector}, {@link TestH2Introspector}).</p>
@@ -383,7 +383,7 @@ public final class ConstraintOracleSelfCheck {
     private static void referentialPragmaOff() throws Exception {
         RelationalSchema intended = schema();
         Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
-        DDLSmithDBConnection wrapper = new DDLSmithDBConnection(connection, "sqlite-pragma-off");
+        DDLsmithDBConnection wrapper = new DDLsmithDBConnection(connection, "sqlite-pragma-off");
         DatabaseUnderTest database = new DatabaseUnderTest("sqlite-pragma-off", wrapper, new TestSqliteDialect(),
                 new TestSqliteIntrospector());
         materialize(database, intended);
@@ -485,7 +485,7 @@ public final class ConstraintOracleSelfCheck {
                     "pivot-row must report DATA_MISMATCH, got " + failure.get().getKind());
             check(failure.get().getDetails().contains("Query      :")
                             && failure.get().getDetails().contains("Expected")
-                            && failure.get().getDetails().contains("Rows DDLSmith inserted"),
+                            && failure.get().getDetails().contains("Rows DDLsmith inserted"),
                     "the report must show the query, the expected and the observed result and the inserted rows: "
                             + failure.get().getDetails());
         }
@@ -494,7 +494,7 @@ public final class ConstraintOracleSelfCheck {
     /* ================================================================== fixtures */
 
     /**
-     * A schema shaped like the ones DDLSmith generates for recursive relationships: a composite
+     * A schema shaped like the ones DDLsmith generates for recursive relationships: a composite
      * primary key, a composite foreign key with CASCADE and a nullable self-referencing foreign key.
      */
     public static RelationalSchema complexSchema() {
@@ -716,7 +716,7 @@ public final class ConstraintOracleSelfCheck {
      * <p>{@code GENERATED ALWAYS AS (a + 1) NOT NULL} is NULL whenever {@code a} is NULL, and the
      * engine then rejects the INSERT. The row generator skips generated columns — it cannot evaluate
      * the expression — and the constraint oracle's own check skips them too, so the rejection was
-     * reported as the engine being too strict about a row DDLSmith had declared valid. This was the
+     * reported as the engine being too strict about a row DDLsmith had declared valid. This was the
      * one class of {@code CONSTRAINT_TOO_STRICT} that still survived the existing guard.</p>
      */
     private static void generatedNotNullColumn(boolean sqlite) throws Exception {
@@ -957,7 +957,7 @@ public final class ConstraintOracleSelfCheck {
 
     public static DatabaseUnderTest sqlite(String name) throws SQLException {
         Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
-        DDLSmithDBConnection wrapper = new DDLSmithDBConnection(connection, name);
+        DDLsmithDBConnection wrapper = new DDLsmithDBConnection(connection, name);
         // the dialect's session setup statement, executed exactly as the runner would
         for (String setup : new TestSqliteDialect().getSessionSetupStatements()) {
             wrapper.executeStatement(setup);
@@ -969,7 +969,7 @@ public final class ConstraintOracleSelfCheck {
         h2Counter++;
         Connection connection = DriverManager.getConnection(
                 "jdbc:h2:mem:cst_" + h2Counter + ";DB_CLOSE_DELAY=-1");
-        return new DatabaseUnderTest(name, new DDLSmithDBConnection(connection, name), new TestH2Dialect(),
+        return new DatabaseUnderTest(name, new DDLsmithDBConnection(connection, name), new TestH2Dialect(),
                 new TestH2Introspector());
     }
 

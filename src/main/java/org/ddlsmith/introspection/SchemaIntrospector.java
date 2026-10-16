@@ -2,7 +2,7 @@ package org.ddlsmith.introspection;
 
 import java.sql.SQLException;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.ddl.DDLFeature;
 
@@ -20,7 +20,7 @@ public interface SchemaIntrospector {
      * @param schemaName the namespace to introspect, or null for the engine's default
      * @return the schema as it actually exists in the database
      */
-    RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException;
+    RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException;
 
     /**
      * @return the aspects of a schema that this introspector can report reliably. The round-trip

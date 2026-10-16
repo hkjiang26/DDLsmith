@@ -13,7 +13,7 @@ public class TruncateTable implements DDLStatement {
 
     /**
      * @param schemaName the namespace the table lives in, so that the statement addresses the table
-     *        DDLSmith created rather than one of the same name in the engine's default namespace
+     *        DDLsmith created rather than one of the same name in the engine's default namespace
      */
     public TruncateTable(String schemaName, String tableName, boolean cascade, boolean restartIdentity) {
         this.schemaName = schemaName;

@@ -216,7 +216,7 @@ public class DefaultValueOracle implements TestOracle {
             }
             if (expectation.kind == DefaultExpectation.Kind.UNKNOWN) {
                 notes.add(prefix + "default on " + table.getName() + "." + columnName + " is '"
-                        + column.getDefaultExpression() + "', which DDLSmith cannot evaluate, so only the "
+                        + column.getDefaultExpression() + "', which DDLsmith cannot evaluate, so only the "
                         + "presence of a value is checked (it is " + describeValue(stored) + ")");
             }
         }

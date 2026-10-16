@@ -200,7 +200,7 @@ public final class GraphPropertyFiller {
      * {@link Randomly#getDouble(double, double)} can overshoot its bounds: its value cache may
      * answer with a cached {@code long} (for example {@code 1234567.0}). The result is clamped so
      * that the produced values stay inside the documented range; repeated boundary values are
-     * harmless, and in fact in the spirit of DDLSmith's constant caching.
+     * harmless, and in fact in the spirit of DDLsmith's constant caching.
      */
     private static double boundedDouble(double min, double max) {
         double value = Randomly.getDouble(min, max);

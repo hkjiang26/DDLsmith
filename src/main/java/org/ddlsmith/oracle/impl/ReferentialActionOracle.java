@@ -431,7 +431,7 @@ public class ReferentialActionOracle implements TestOracle {
             // key of the same child table which also declares CASCADE. Counting only the key under
             // test expected one row too many whenever a second cascading key of the table pointed at
             // the same parent row - two foreign keys from one join table to one entity is a shape
-            // DDLSmith generates routinely, and the difference was reported as the engine removing
+            // DDLsmith generates routinely, and the difference was reported as the engine removing
             // the wrong number of rows.
             //
             // That model is exact only while the deleted row is the only row of the parent table the
@@ -1071,7 +1071,7 @@ public class ReferentialActionOracle implements TestOracle {
      * refused the statement itself with {@code 1264 Out of range value for column 'a18'} — before any
      * referential action could be observed, which the oracle then reported as "the declared action
      * could not happen". Four of the two-hour run's thirteen findings were that, and all four were
-     * DDLSmith's own ({@code runs/REPORT-MYSQL-2H.md} §3.4).</p>
+     * DDLsmith's own ({@code runs/REPORT-MYSQL-2H.md} §3.4).</p>
      *
      * <p>The step is kept, but the result is fitted to the column the value is written into
      * ({@link DataModel#fitToType}); when the column is too narrow for the step in that direction the

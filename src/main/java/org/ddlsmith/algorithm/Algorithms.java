@@ -4,7 +4,7 @@ import org.ddlsmith.GlobalState;
 import org.ddlsmith.MainOptions;
 
 /**
- * The testing algorithms of DDLSmith.
+ * The testing algorithms of DDLsmith.
  *
  * <ul>
  *   <li>{@code random} — generate, create, verify (the default).</li>

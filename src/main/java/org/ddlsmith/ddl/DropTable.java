@@ -12,7 +12,7 @@ public class DropTable implements DDLStatement {
     }
 
     /**
-     * @param schemaName the namespace the table lives in. A statement that drops a table DDLSmith
+     * @param schemaName the namespace the table lives in. A statement that drops a table DDLsmith
      *        created has to name that namespace: an unqualified {@code DROP TABLE t} addresses the
      *        engine's default namespace, so it either fails or silently does nothing, and the schema
      *        then keeps a table the tool believes it removed.

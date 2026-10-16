@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.ForeignKey;
@@ -62,7 +62,7 @@ public class SqliteTestIntrospector extends AbstractIntrospector {
     }
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         String namespace = schemaName == null || schemaName.isBlank() ? "main" : schemaName;
         RelationalSchema schema = new RelationalSchema(namespace);
         Map<String, Table> byName = new LinkedHashMap<>();
@@ -122,7 +122,7 @@ public class SqliteTestIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ pieces */
 
-    private void readForeignKeys(DDLSmithDBConnection connection, Table table, List<ForeignKey> unresolvedTargets)
+    private void readForeignKeys(DDLsmithDBConnection connection, Table table, List<ForeignKey> unresolvedTargets)
             throws SQLException {
         Map<Integer, List<Map<String, Object>>> byId = new LinkedHashMap<>();
         for (Map<String, Object> row : query(connection, "PRAGMA foreign_key_list(" + literal(table.getName()) + ")")) {
@@ -149,7 +149,7 @@ public class SqliteTestIntrospector extends AbstractIntrospector {
         }
     }
 
-    private void readIndexes(DDLSmithDBConnection connection, Table table) throws SQLException {
+    private void readIndexes(DDLsmithDBConnection connection, Table table) throws SQLException {
         for (Map<String, Object> row : query(connection, "PRAGMA index_list(" + literal(table.getName()) + ")")) {
             String origin = getString(row, "origin", "c");
             if ("pk".equals(origin)) {

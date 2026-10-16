@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -58,7 +58,7 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  * the production build) and is deliberately a {@code main} rather than a JUnit test: it connects to
  * a real in-memory SQLite database, runs the DDL the dialect renders, reads the schema back with the
  * introspector and reports both the round trip and a handful of documented engine behaviours that
- * DDLSmith is meant to surface.
+ * DDLsmith is meant to surface.
  *
  * <p>Run it with:</p>
  * <pre>
@@ -80,7 +80,7 @@ public final class SelfCheck {
     }
 
     public static void main(String[] args) throws Exception {
-        System.out.println("=== DDLSmith SQLite module self check ===");
+        System.out.println("=== DDLsmith SQLite module self check ===");
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:")) {
             System.out.println("sqlite version: " + connection.getMetaData().getDatabaseProductVersion());
         }
@@ -448,7 +448,7 @@ public final class SelfCheck {
     private static void checkSchemaRoundTrip(SqliteDialect dialect) throws Exception {
         System.out.println("--- schema round trip on a real in-memory database");
         RoundTripResult result;
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             result = executeAndIntrospect(connection, dialect, true);
         }
         System.out.println("    executed " + result.statements.size() + " statements, introspected "
@@ -550,8 +550,8 @@ public final class SelfCheck {
         return sb.toString();
     }
 
-    private static DDLSmithDBConnection connect() throws SQLException {
-        return new DDLSmithDBConnection(DriverManager.getConnection("jdbc:sqlite::memory:"), "self-check");
+    private static DDLsmithDBConnection connect() throws SQLException {
+        return new DDLsmithDBConnection(DriverManager.getConnection("jdbc:sqlite::memory:"), "self-check");
     }
 
     /**
@@ -560,7 +560,7 @@ public final class SelfCheck {
      *
      * @param print when true, every rendered statement is printed
      */
-    public static RoundTripResult executeAndIntrospect(DDLSmithDBConnection connection, SqliteDialect dialect,
+    public static RoundTripResult executeAndIntrospect(DDLsmithDBConnection connection, SqliteDialect dialect,
             boolean print) throws SQLException {
         RelationalSchema intended = sampleSchema();
         List<String> statements = new ArrayList<>();
@@ -745,7 +745,7 @@ public final class SelfCheck {
                 adapted.getTable("t_7_r").getColumn("id").getType());
         check("the adaptation is recorded as a note (" + notes + ")",
                 notes.stream().anyMatch(note -> note.contains("t_7_r.id")));
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             for (String sql : dialect.getSessionSetupStatements()) {
                 connection.executeStatement(sql);
             }
@@ -767,7 +767,7 @@ public final class SelfCheck {
 
     private static void checkGeneratedColumns(SqliteDialect dialect) throws Exception {
         System.out.println("--- generated columns (only visible through PRAGMA table_xinfo)");
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             Table table = new Table("computed");
             table.addColumn(new Column("base", DataType.integer(), false));
             table.addColumn(new Column("doubled", DataType.integer(), true)
@@ -826,7 +826,7 @@ public final class SelfCheck {
         check("the reserved column names were renamed to " + adaptedTable.getColumnNames(),
                 !adaptedTable.hasColumn("select") && !adaptedTable.hasColumn("value"));
         check("the renames are recorded as notes (" + notes.size() + ")", notes.size() >= 2);
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             for (String sql : dialect.getSessionSetupStatements()) {
                 connection.executeStatement(sql);
             }
@@ -848,7 +848,7 @@ public final class SelfCheck {
 
     private static void checkTemporarySchema(SqliteDialect dialect) throws Exception {
         System.out.println("--- the temp schema is introspected from sqlite_temp_master");
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             Table table = new Table("temp_notes");
             table.setTemporary(true);
             table.addColumn(new Column("id", DataType.integer(), false).setIdentity(true));
@@ -879,7 +879,7 @@ public final class SelfCheck {
 
     private static void checkAlterRoundTrip(SqliteDialect dialect) throws Exception {
         System.out.println("--- ALTER TABLE round trip (on a table that already has a row)");
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             for (String sql : dialect.getSessionSetupStatements()) {
                 connection.executeStatement(sql);
             }
@@ -907,7 +907,7 @@ public final class SelfCheck {
         System.out.println();
     }
 
-    private static void executeAll(DDLSmithDBConnection connection, SqliteDialect dialect, DDLStatement statement)
+    private static void executeAll(DDLsmithDBConnection connection, SqliteDialect dialect, DDLStatement statement)
             throws SQLException {
         for (String sql : dialect.renderAll(statement)) {
             System.out.println("      " + sql);
@@ -921,7 +921,7 @@ public final class SelfCheck {
         System.out.println("--- foreign key enforcement depends on the session setup");
         check("setup contains PRAGMA foreign_keys = ON",
                 dialect.getSessionSetupStatements().contains("PRAGMA foreign_keys = ON"));
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             for (String sql : dialect.getSessionSetupStatements()) {
                 connection.executeStatement(sql);
             }
@@ -939,7 +939,7 @@ public final class SelfCheck {
                 System.out.println("       rejected with: " + e.getMessage());
             }
         }
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             connection.executeStatement("CREATE TABLE parent (id INTEGER PRIMARY KEY)");
             connection.executeStatement("CREATE TABLE child (id INTEGER PRIMARY KEY, pid INTEGER,"
                     + " FOREIGN KEY (pid) REFERENCES parent (id))");
@@ -949,7 +949,7 @@ public final class SelfCheck {
         }
         // FK_TARGET_MUST_EXIST is deliberately absent from the feature set: SQLite resolves foreign
         // key targets lazily, so a table may reference one that does not exist yet
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             connection.executeStatement("PRAGMA foreign_keys = ON");
             connection.executeStatement("CREATE TABLE forward_reference (pid INTEGER REFERENCES created_later (id))");
             connection.executeStatement("CREATE TABLE created_later (id INTEGER PRIMARY KEY)");
@@ -970,12 +970,12 @@ public final class SelfCheck {
     /* ------------------------------------------------------------------ 5. engine behaviours */
 
     /**
-     * Documents the SQLite behaviours DDLSmith is meant to surface. Nothing here fails the check:
+     * Documents the SQLite behaviours DDLsmith is meant to surface. Nothing here fails the check:
      * these are findings about the engine, and the dialect works around them where it can.
      */
     private static void printEngineBehaviours(SqliteDialect dialect) throws Exception {
         System.out.println("--- observed SQLite engine behaviours (informational, never fails)");
-        try (DDLSmithDBConnection connection = connect()) {
+        try (DDLsmithDBConnection connection = connect()) {
             connection.executeStatement("PRAGMA foreign_keys = ON");
 
             // (a) DROP COLUMN of an indexed column

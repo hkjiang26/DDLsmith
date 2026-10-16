@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -112,7 +112,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
     /* ------------------------------------------------------------------ entry point */
 
     @Override
-    public RelationalSchema introspect(DDLSmithDBConnection connection, String schemaName) throws SQLException {
+    public RelationalSchema introspect(DDLsmithDBConnection connection, String schemaName) throws SQLException {
         boolean temporary = isTemporarySchema(schemaName);
         // "temp" is the only other namespace SQLite has; anything else is treated as main
         String master = temporary ? "sqlite_temp_master" : "sqlite_master";
@@ -160,7 +160,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ columns */
 
-    private void readColumns(DDLSmithDBConnection connection, String pragmaPrefix, Table table, String createSql)
+    private void readColumns(DDLsmithDBConnection connection, String pragmaPrefix, Table table, String createSql)
             throws SQLException {
         // table_xinfo (3.26+) is table_info plus the hidden flag, which is the only way to see
         // generated columns: table_info silently omits them
@@ -220,7 +220,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ foreign keys */
 
-    private void readForeignKeys(DDLSmithDBConnection connection, String pragmaPrefix, Table table,
+    private void readForeignKeys(DDLsmithDBConnection connection, String pragmaPrefix, Table table,
             Map<String, Table> tables) throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "PRAGMA " + pragmaPrefix + "foreign_key_list(" + literal(table.getName()) + ")");
@@ -265,7 +265,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ indexes and unique constraints */
 
-    private void readIndexes(DDLSmithDBConnection connection, String pragmaPrefix, Map<String, String> indexSql,
+    private void readIndexes(DDLsmithDBConnection connection, String pragmaPrefix, Map<String, String> indexSql,
             Table table) throws SQLException {
         List<Map<String, Object>> rows = query(connection,
                 "PRAGMA " + pragmaPrefix + "index_list(" + literal(table.getName()) + ")");
@@ -292,7 +292,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
         }
     }
 
-    private List<String> readIndexColumns(DDLSmithDBConnection connection, String pragmaPrefix, String indexName)
+    private List<String> readIndexColumns(DDLsmithDBConnection connection, String pragmaPrefix, String indexName)
             throws SQLException {
         List<String> columns = new ArrayList<>();
         for (Map<String, Object> row : query(connection,
@@ -305,7 +305,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
         return columns;
     }
 
-    private Index readIndex(DDLSmithDBConnection connection, String pragmaPrefix, String name, List<String> columns,
+    private Index readIndex(DDLsmithDBConnection connection, String pragmaPrefix, String name, List<String> columns,
             String sql) throws SQLException {
         boolean expressionIndex = false;
         for (Map<String, Object> row : query(connection,
@@ -360,7 +360,7 @@ public class SqliteIntrospector extends AbstractIntrospector {
 
     /* ------------------------------------------------------------------ views */
 
-    private void readViews(DDLSmithDBConnection connection, String master, RelationalSchema schema)
+    private void readViews(DDLsmithDBConnection connection, String master, RelationalSchema schema)
             throws SQLException {
         for (Map<String, Object> row : query(connection,
                 "SELECT name, sql FROM " + master + " WHERE type = 'view' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {

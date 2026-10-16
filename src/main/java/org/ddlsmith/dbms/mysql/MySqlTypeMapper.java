@@ -242,7 +242,7 @@ public class MySqlTypeMapper implements TypeMapper {
         case "text":
         case "mediumtext":
         case "longtext":
-            // the four TEXT sizes are one canonical category; DDLSmith always creates TEXT
+            // the four TEXT sizes are one canonical category; DDLsmith always creates TEXT
             result = DataType.text();
             break;
         case "bool":

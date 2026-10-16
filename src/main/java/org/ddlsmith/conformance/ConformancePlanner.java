@@ -270,7 +270,7 @@ public final class ConformancePlanner {
     /**
      * Keeps a value the graph supplies inside the range of every stored generated column it feeds.
      *
-     * <p>The generated expressions DDLSmith's mapper writes are arithmetic on one of the entity's own
+     * <p>The generated expressions DDLsmith's mapper writes are arithmetic on one of the entity's own
      * numeric attributes — {@code a10 GENERATED ALWAYS AS (a1 + 1) STORED} — and the derived attribute's
      * declared type is not tied to the type of the attribute it reads, so {@code a1} can be an
      * {@code INT} while {@code a10} is a {@code SMALLINT}. Fitting a value to the column it is written
@@ -278,10 +278,10 @@ public final class ConformancePlanner {
      * the whole row with {@code 1264 Out of range value for column 'a10'}, because {@code a1 + 1} does
      * not fit a {@code SMALLINT}. Measured on 26.7.0 while reviewing the two-hour experiment
      * ({@code runs/REPORT-MYSQL-2H.md} §3.3): three of the thirteen findings were exactly this, and all
-     * three were DDLSmith's own.</p>
+     * three were DDLsmith's own.</p>
      *
      * <p>The operand is therefore clamped the way {@link #fit} clamps a value to its own column. Only
-     * the shape DDLSmith generates is understood — one column name, one {@code +} or {@code -}, one
+     * the shape DDLsmith generates is understood — one column name, one {@code +} or {@code -}, one
      * integer literal — and only when the generated column's type has a range this code can name; an
      * expression it cannot read is left alone, and {@link ConformancePopulator} then turns a refusal
      * that names a generated column into a note instead of a finding.</p>
@@ -329,7 +329,7 @@ public final class ConformancePlanner {
     /**
      * @return the value the operand of {@code generated}'s expression has to take for the expression to
      *         stay inside the generated column's own type, or null when the value already fits — or when
-     *         the expression is not the shape DDLSmith writes, or its type has no range to compute with
+     *         the expression is not the shape DDLsmith writes, or its type has no range to compute with
      *
      * <p>Package-private so that the arithmetic can be asserted directly, including at the bounds:
      * {@code SMALLINT GENERATED ALWAYS AS (a1 + 1)} has to clamp {@code 1028000} to {@code 32766} and
@@ -352,7 +352,7 @@ public final class ConformancePlanner {
     }
 
     /**
-     * One operand of a generated expression of the shape DDLSmith writes: {@code <column> + <literal>}.
+     * One operand of a generated expression of the shape DDLsmith writes: {@code <column> + <literal>}.
      *
      * <p>The bounds are computed backwards from the generated column: the expression has to land inside
      * the generated column's range, so the operand has to land inside that range shifted by the
@@ -577,7 +577,7 @@ public final class ConformancePlanner {
     }
 
     /**
-     * @return false when a check of the shape DDLSmith generates for a category —
+     * @return false when a check of the shape DDLsmith generates for a category —
      *         {@code a IS NOT NULL OR b IS NOT NULL} — has every operand NULL, which the engine would
      *         reject and which the check-constraint machinery of the row generator deliberately does
      *         not test (it treats an expression it does not understand as satisfied)
@@ -2020,7 +2020,7 @@ public final class ConformancePlanner {
      *
      * <p>The base row satisfied every check by construction, but a value taken from the graph can
      * violate a check the mapper added later (a numeric bound, a `<>` condition). The repair uses the
-     * same analyzer the row generator uses and the same rule for the one disjunction DDLSmith
+     * same analyzer the row generator uses and the same rule for the one disjunction DDLsmith
      * generates: an at-least-one-of-these-is-not-null check is satisfied by filling one operand.</p>
      */
     private void satisfyChecks(Table table, Map<String, Object> row, Set<String> protectedColumns) {

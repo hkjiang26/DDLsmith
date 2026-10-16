@@ -1,7 +1,7 @@
 package org.ddlsmith.introspection;
 
 /**
- * One concrete difference between the schema DDLSmith intended to create and the schema that the
+ * One concrete difference between the schema DDLsmith intended to create and the schema that the
  * database actually reports.
  */
 public class SchemaDifference {

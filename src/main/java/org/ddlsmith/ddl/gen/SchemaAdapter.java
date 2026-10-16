@@ -25,8 +25,8 @@ import org.ddlsmith.ddl.Dialect;
  *
  * <p>This step is what keeps the oracles honest. If the generator silently omitted a construct the
  * engine cannot express, but the intended schema still contained it, the schema round-trip oracle
- * would report a mismatch that is DDLSmith's fault rather than the engine's. So instead of
- * degrading while rendering, DDLSmith degrades the <em>intended schema</em> first and then renders
+ * would report a mismatch that is DDLsmith's fault rather than the engine's. So instead of
+ * degrading while rendering, DDLsmith degrades the <em>intended schema</em> first and then renders
  * it: the intended schema is by construction exactly what was asked of the engine.</p>
  *
  * <p>Every degradation is recorded as a note so that reports show what was not attempted.</p>
@@ -104,11 +104,11 @@ public final class SchemaAdapter {
      *
      * <p>Two tables that reference each other cannot both be created with their foreign keys inline,
      * because whichever is created first would reference a table that does not exist yet. For engines
-     * that validate the target at creation time, DDLSmith therefore creates the referencing table
+     * that validate the target at creation time, DDLsmith therefore creates the referencing table
      * without the cycle-closing foreign key and adds it afterwards with
      * {@code ALTER TABLE ... ADD CONSTRAINT}. Where the engine cannot add a constraint after
      * creation, the cycle-closing foreign key is dropped and the reason is recorded — an engine is
-     * never blamed for a statement DDLSmith could not have expressed.</p>
+     * never blamed for a statement DDLsmith could not have expressed.</p>
      */
     private static void resolveReferenceCycles(RelationalSchema schema, Dialect dialect, List<String> notes) {
         if (!dialect.requiresExistingForeignKeyTarget()) {
@@ -159,9 +159,9 @@ public final class SchemaAdapter {
      * to compare, for two reasons. The engine-side reason: MySQL requires the character set and
      * collation to be the same on both sides of a foreign key (manual §15.1.20.5; measured as error
      * {@code 3780}), so pinning only one side would make the constraint uncreatable. The
-     * DDLSmith-side reason: the intended schema is the thing every oracle and every catalog
+     * DDLsmith-side reason: the intended schema is the thing every oracle and every catalog
      * comparison is measured against, and a column whose collation is left to the server is a column
-     * whose meaning DDLSmith does not know.</p>
+     * whose meaning DDLsmith does not know.</p>
      *
      * <p>One note covers all of them: a line per column would drown the report, and the decision is
      * one decision.</p>
@@ -556,7 +556,7 @@ public final class SchemaAdapter {
     }
 
     /**
-     * Rewrites a check expression so that it refers to the renamed columns. The expressions DDLSmith
+     * Rewrites a check expression so that it refers to the renamed columns. The expressions DDLsmith
      * generates are always built from column names and literals, so a whole-word replacement is
      * exact; the replacement is case-insensitive because the engines fold unquoted identifiers.
      */
@@ -1064,7 +1064,7 @@ public final class SchemaAdapter {
      * Gives a unique alias to every projected column whose name would collide with an earlier one.
      *
      * <p>A view that joins two tables both having an {@code id} column projects two columns called
-     * {@code id}, which no engine accepts — with or without an explicit column list. DDLSmith
+     * {@code id}, which no engine accepts — with or without an explicit column list. DDLsmith
      * generates these view bodies itself, so the transformation only has to handle the query shape it
      * produces: a {@code SELECT} list of simple (possibly qualified) column references followed by a
      * {@code FROM} clause.</p>

@@ -4,7 +4,7 @@ import java.util.Locale;
 
 /**
  * Behavioural traits of an engine that are not a matter of SQL syntax and therefore do not belong in
- * a {@link org.ddlsmith.ddl.DDLFeatureSet} — but that DDLSmith must know about to generate valid
+ * a {@link org.ddlsmith.ddl.DDLFeatureSet} — but that DDLsmith must know about to generate valid
  * input.
  *
  * <p>Each trait is expressed both as a {@link org.ddlsmith.ddl.DDLFeature} (which a dialect should
@@ -36,7 +36,7 @@ public final class EngineTraits {
         case "mariadb":
             return true;
         default:
-            // the safe assumption: assume the engine validates, so DDLSmith breaks cycles explicitly
+            // the safe assumption: assume the engine validates, so DDLsmith breaks cycles explicitly
             return true;
         }
     }
@@ -121,7 +121,7 @@ public final class EngineTraits {
      * really store one. SQLite renders {@code INTEGER PRIMARY KEY AUTOINCREMENT} and nothing else, so
      * an identity column that a unique index merely covers is silently written as a plain column —
      * the intended schema then says IDENTITY and the catalog says it is not, and the round-trip
-     * oracle blames the engine for a statement DDLSmith never emitted. The predicate here is exactly
+     * oracle blames the engine for a statement DDLsmith never emitted. The predicate here is exactly
      * the one {@code SqliteDialect.isAutoincrementPrimaryKey} applies when rendering, so the two
      * cannot drift apart again.</p>
      */
@@ -139,7 +139,7 @@ public final class EngineTraits {
 
     /**
      * @return the largest DECIMAL precision the engine accepts, or {@link Integer#MAX_VALUE} when it
-     *         imposes no limit DDLSmith has to know about.
+     *         imposes no limit DDLsmith has to know about.
      *
      * <p>A widening type change grows the precision on every step, so an unbounded engine is fine
      * with it and a bounded one is not: DuckDB answers {@code Parser Error: Width must be between 1
@@ -161,7 +161,7 @@ public final class EngineTraits {
 
     /**
      * @return the largest number of columns the engine accepts in a single index, or
-     *         {@link Integer#MAX_VALUE} when it imposes no limit DDLSmith has to know about.
+     *         {@link Integer#MAX_VALUE} when it imposes no limit DDLsmith has to know about.
      *
      * <p>InnoDB answers {@code Too many key parts specified; max 16 parts allowed} (error 1070) and
      * rejects the whole statement. The ER mapper builds an index over a random subset of a table's
@@ -213,7 +213,7 @@ public final class EngineTraits {
 
     /**
      * @return true when the engine's error code is its answer to breaking one of the limits this class
-     *         encodes, so that the rejection is evidence about DDLSmith's generator rather than about
+     *         encodes, so that the rejection is evidence about DDLsmith's generator rather than about
      *         the engine.
      *
      * <p>{@link #maxIndexColumns}, {@link #maxIndexKeyBytes} and
@@ -267,13 +267,13 @@ public final class EngineTraits {
 
     /**
      * @return the largest number of bytes the engine accepts in one index key, or
-     *         {@link Integer#MAX_VALUE} when it imposes no limit DDLSmith has to know about.
+     *         {@link Integer#MAX_VALUE} when it imposes no limit DDLsmith has to know about.
      *
      * <p>InnoDB answers {@code Specified key was too long; max key length is 3072 bytes} (error 1071)
      * and rejects the whole {@code CREATE TABLE} or {@code CREATE INDEX}. The manual gives 3072 bytes
      * for the {@code DYNAMIC} and {@code COMPRESSED} row formats and 767 bytes for {@code REDUNDANT}
      * and {@code COMPACT}; a page size below 16KB lowers it proportionally (1536 bytes at 8KB, 768 at
-     * 4KB). DDLSmith takes the 16KB/DYNAMIC figure because that is what a server defaults to —
+     * 4KB). DDLsmith takes the 16KB/DYNAMIC figure because that is what a server defaults to —
      * measured on 26.7.0, which reports {@code innodb_default_row_format=dynamic}.</p>
      *
      * <p>The limit is on <em>bytes</em>, not characters, so how many characters fit depends on the
@@ -290,8 +290,8 @@ public final class EngineTraits {
     /**
      * Bytes one character costs in a MySQL index key.
      *
-     * <p>DDLSmith does not pin a character set: it creates its database through the server's default,
-     * and every MySQL DDLSmith has been pointed at reports {@code character_set_server=utf8mb4},
+     * <p>DDLsmith does not pin a character set: it creates its database through the server's default,
+     * and every MySQL DDLsmith has been pointed at reports {@code character_set_server=utf8mb4},
      * which is also the server default since 8.0. Four is therefore the honest figure for the
      * generated schema, and it is the pessimistic one among the character sets a server would pick.</p>
      */
@@ -329,7 +329,7 @@ public final class EngineTraits {
             return 3;
         case TIMESTAMP:
         case TIMESTAMPTZ:
-            // DATETIME(6) is five bytes; it is the widest temporal type DDLSmith emits
+            // DATETIME(6) is five bytes; it is the widest temporal type DDLsmith emits
             return 5;
         case DECIMAL:
             return decimalKeyBytes(type.getPrecision(), type.getScale());
@@ -415,7 +415,7 @@ public final class EngineTraits {
      * restate what it would drop — which is why {@link MySqlDialect}'s renderer says so in a comment and
      * the generator has to avoid the action instead. Asking anyway produced
      * {@code COLUMN_NULLABILITY at t.a: expected NOT NULL, actual NULL} on 29 of every 100 evolved
-     * databases, with the schema silently changed by a statement DDLSmith had no business emitting.</p>
+     * databases, with the schema silently changed by a statement DDLsmith had no business emitting.</p>
      */
     public static boolean typeChangeReplacesColumnDefinition(java.util.function.Predicate<String> isEngine) {
         return isEngine.test("mysql") || isEngine.test("mariadb");
@@ -529,7 +529,7 @@ public final class EngineTraits {
      * <p>DuckDB 1.3 rejects every one of them with {@code Parser Error: Adding columns with
      * constraints not yet supported}. The statement never takes effect, so a generator that emits it
      * leaves its own model describing a column the engine does not have — and the evolution oracle
-     * then reports a divergence that DDLSmith caused. The dialect's {@code ALTER_ADD_COLUMN} probe
+     * then reports a divergence that DDLsmith caused. The dialect's {@code ALTER_ADD_COLUMN} probe
      * says so in prose; this is the same fact in a form the generator can act on.</p>
      */
     public static boolean allowsConstraintsOnAddedColumn(String dialectName) {
@@ -625,7 +625,7 @@ public final class EngineTraits {
      *
      * <p><b>MariaDB is included by analogy, not by measurement.</b> MariaDB is registered in the
      * dialect and introspector registries and shares this file's other traits, but no MariaDB server
-     * has been run against DDLSmith and the README's engine table does not list it, so whether MariaDB
+     * has been run against DDLsmith and the README's engine table does not list it, so whether MariaDB
      * inherits InnoDB's rule is unverified. Demoting a generated column to {@code VIRTUAL} is legal on
      * both engines, so the guard is safe there even if it turns out to be unnecessary; a MariaDB
      * round should re-measure this matrix before the trait is trusted.</p>

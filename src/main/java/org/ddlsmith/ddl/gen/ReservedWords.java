@@ -8,13 +8,13 @@ import java.util.Set;
 /**
  * Reserved words per engine.
  *
- * <p>DDLSmith generates identifiers unquoted (so that names stay case-insensitive and comparable
+ * <p>DDLsmith generates identifiers unquoted (so that names stay case-insensitive and comparable
  * across engines), which means a generated name that happens to be a reserved word makes the engine
  * reject an otherwise valid statement. That is a defect of the generator, not of the engine, so
  * {@link SchemaAdapter} renames such identifiers before rendering.</p>
  *
  * <p>The lists only need to contain words that could actually appear as a generated identifier:
- * entity attributes are {@code a0..aN}, tables {@code t_0..}, and the fixed names DDLSmith
+ * entity attributes are {@code a0..aN}, tables {@code t_0..}, and the fixed names DDLsmith
  * introduces are {@code id}, {@code value}, {@code dtype} and the {@code pk_/fk_/uq_/ck_/idx_}
  * constraint prefixes. The lists are deliberately generous rather than minimal, because a false
  * positive only renames a column while a false negative breaks the generated DDL.</p>

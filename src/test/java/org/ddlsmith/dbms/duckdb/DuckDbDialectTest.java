@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -524,7 +524,7 @@ class DuckDbDialectTest {
         intended.addSequence(new Sequence("seq_emp").setSchemaName("main"));
 
         try (Connection connection = DriverManager.getConnection("jdbc:duckdb:")) {
-            DDLSmithDBConnection db = new DDLSmithDBConnection(connection, "junit");
+            DDLsmithDBConnection db = new DDLsmithDBConnection(connection, "junit");
             for (DDLStatement statement : statementsOf(intended)) {
                 for (String sql : dialect.renderAll(statement)) {
                     db.executeStatement(sql);
@@ -543,7 +543,7 @@ class DuckDbDialectTest {
     @Test
     void alterRoundTripRestoresTheIntrospectedSchema() throws Exception {
         try (Connection connection = DriverManager.getConnection("jdbc:duckdb:")) {
-            DDLSmithDBConnection db = new DDLSmithDBConnection(connection, "junit");
+            DDLsmithDBConnection db = new DDLsmithDBConnection(connection, "junit");
             db.executeStatement("CREATE SCHEMA alter_rt");
             Table table = new Table("alter_rt", "t_alter");
             table.addColumn(new Column("id", DataType.integer(), false));

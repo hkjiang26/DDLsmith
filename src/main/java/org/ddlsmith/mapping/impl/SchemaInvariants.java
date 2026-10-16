@@ -27,7 +27,7 @@ import org.ddlsmith.common.schema.View;
  */
 public final class SchemaInvariants {
 
-    /** The maximum length of any identifier DDLSmith generates. */
+    /** The maximum length of any identifier DDLsmith generates. */
     public static final int MAX_NAME_LENGTH = 60;
 
     private SchemaInvariants() {

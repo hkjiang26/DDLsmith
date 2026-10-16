@@ -129,11 +129,11 @@ public final class OracleSelfCheck {
     }
 
     /**
-     * A row DDLSmith generated is not part of the DDL contract this oracle asks about. An INSERT
+     * A row DDLsmith generated is not part of the DDL contract this oracle asks about. An INSERT
      * rejected for a unique or foreign key violation means the row generator did not respect a
-     * constraint of its own schema — DDLSmith's mistake, reported by the data oracles as "the table
+     * constraint of its own schema — DDLsmith's mistake, reported by the data oracles as "the table
      * could not be populated". Reporting it here filed "engine rejected seed-insert" at high
-     * confidence, which blames the engine for DDLSmith's own defect.
+     * confidence, which blames the engine for DDLsmith's own defect.
      */
     public static void checkCrashOracleIgnoresAGeneratedRowFailure() throws Exception {
         try (OracleTestFixture fixture = OracleTestFixture.create()) {
@@ -211,7 +211,7 @@ public final class OracleSelfCheck {
         }
     }
 
-    /** A table the engine created although DDLSmith never asked for it must never be filtered away. */
+    /** A table the engine created although DDLsmith never asked for it must never be filtered away. */
     public static void checkRoundTripReportsATableTheEngineAddedOnItsOwn() throws Exception {
         try (OracleTestFixture fixture = OracleTestFixture.create()) {
             fixture.sqliteConnection.executeStatement("CREATE TABLE t_stray (x INTEGER)");

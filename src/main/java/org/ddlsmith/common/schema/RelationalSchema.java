@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A complete relational schema: the set of tables, views and sequences that DDLSmith intends to
+ * A complete relational schema: the set of tables, views and sequences that DDLsmith intends to
  * create for one generated ER diagram.
  */
 public class RelationalSchema {

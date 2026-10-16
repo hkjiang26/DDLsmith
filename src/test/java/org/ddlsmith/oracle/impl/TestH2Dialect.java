@@ -8,7 +8,7 @@ import org.ddlsmith.ddl.DDLFeature;
 import org.ddlsmith.ddl.DDLFeatureSet;
 
 /**
- * TEST SCAFFOLDING - not part of DDLSmith.
+ * TEST SCAFFOLDING - not part of DDLsmith.
  *
  * <p>A minimal H2 dialect used by {@link ConstraintOracleSelfCheck}. H2 supports the whole
  * {@code ALTER TABLE} surface, so this dialect declares every action feature the metamorphic oracle

@@ -139,7 +139,7 @@ public final class SelfCheck {
 
         public String summary() {
             StringBuilder builder = new StringBuilder();
-            builder.append("=== DDLSmith ER-to-relational mapping self-check ===\n");
+            builder.append("=== DDLsmith ER-to-relational mapping self-check ===\n");
             builder.append("  mappings executed          : ").append(mappings).append('\n');
             builder.append("  strategy combinations      : ").append(combinations).append('\n');
             builder.append("  random option instances    : ").append(randomInstances).append('\n');

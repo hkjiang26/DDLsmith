@@ -23,8 +23,8 @@ import org.ddlsmith.oracle.TestOracle;
 
 /**
  * A lightweight version of SQLancer's Pivoted Query Synthesis, restricted to what DDL semantics
- * imply: the rows DDLSmith inserted are known, so a small set of deterministic queries has a result
- * DDLSmith can compute from its own {@link DataModel} instead of from another query.
+ * imply: the rows DDLsmith inserted are known, so a small set of deterministic queries has a result
+ * DDLsmith can compute from its own {@link DataModel} instead of from another query.
  *
  * <p>The queries are:</p>
  * <ul>
@@ -40,7 +40,7 @@ import org.ddlsmith.oracle.TestOracle;
  * </ul>
  *
  * <p>A mismatch is a {@link FailureKind#DATA_MISMATCH} whose details show the query, the value
- * DDLSmith computed, the value the engine returned and the rows DDLSmith inserted.</p>
+ * DDLsmith computed, the value the engine returned and the rows DDLsmith inserted.</p>
  *
  * <h2>Guards</h2>
  * <ul>
@@ -91,7 +91,7 @@ public class PivotRowOracle implements TestOracle {
 
     @Override
     public String getDescription() {
-        return "Compares deterministic query results with the rows DDLSmith inserted (pivoted query "
+        return "Compares deterministic query results with the rows DDLsmith inserted (pivoted query "
                 + "synthesis restricted to DDL semantics).";
     }
 
@@ -156,7 +156,7 @@ public class PivotRowOracle implements TestOracle {
 
     /* ------------------------------------------------------------------ query generation */
 
-    /** One deterministic query together with the result DDLSmith computes for it. */
+    /** One deterministic query together with the result DDLsmith computes for it. */
     private static final class PivotQuery {
         final Table table;
         final String sql;
@@ -349,11 +349,11 @@ public class PivotRowOracle implements TestOracle {
         details.append("Query      : ").append(query.sql).append('\n');
         details.append("Meaning    : ").append(query.description).append('\n');
         details.append("Table      : ").append(query.table.getName()).append('\n');
-        details.append("Expected   : ").append(expected).append("  (computed by DDLSmith from the rows it "
+        details.append("Expected   : ").append(expected).append("  (computed by DDLsmith from the rows it "
                 + "inserted)\n");
         details.append("Observed   : ").append(observed).append("  (returned by the engine)\n");
         details.append("Explanation: ").append(explanation).append('\n');
-        details.append("Rows DDLSmith inserted:\n").append(model.describe());
+        details.append("Rows DDLsmith inserted:\n").append(model.describe());
         return ConstraintEnforcementOracle.Support.Finding.of(FailureKind.DATA_MISMATCH, database.getName(),
                 "query", "a query result is inconsistent with the inserted rows", details.toString(), query.sql);
     }

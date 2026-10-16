@@ -42,7 +42,7 @@ import org.ddlsmith.ddl.alter.SetNotNull;
 /**
  * The SQLite dialect (SQLite 3.49, as bundled with {@code org.xerial:sqlite-jdbc}).
  *
- * <p>SQLite is the odd one out among the engines DDLSmith targets: it has no schemas, no sequences,
+ * <p>SQLite is the odd one out among the engines DDLsmith targets: it has no schemas, no sequences,
  * no {@code ALTER TABLE} beyond adding, dropping and renaming, no boolean literals, and it does not
  * enforce foreign keys unless {@code PRAGMA foreign_keys = ON} is set on every connection. The
  * differences that matter for rendering are made explicit here; everything else is inherited from

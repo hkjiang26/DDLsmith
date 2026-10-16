@@ -24,7 +24,7 @@ import org.ddlsmith.introspection.SchemaIntrospector.IntrospectionCapability;
 
 /**
  * Canonicalizes schemas so that two schemas can be compared, and computes the differences between
- * the schema DDLSmith intended to create and the schema a database actually reports.
+ * the schema DDLsmith intended to create and the schema a database actually reports.
  *
  * <p>Comparison is deliberately forgiving about things no engine preserves byte-for-byte
  * (identifier case, redundant parentheses, {@code ::type} casts, keyword case in expressions,
@@ -126,7 +126,7 @@ public final class SchemaNormalizer {
 
     /**
      * @return true if the index merely implements a primary key or unique constraint, in which case
-     *         engines report it as an index although DDLSmith never created it as one
+     *         engines report it as an index although DDLsmith never created it as one
      *
      * <p>Matching on the column set alone is too generous, and the differential oracle paid for it:
      * {@code CREATE UNIQUE INDEX uidx_mv_e3_0_0 ON mv_e3_0 (value_col, t_3_id)} sits on exactly the
@@ -136,7 +136,7 @@ public final class SchemaNormalizer {
      * and none on the other, and every affected database reported
      * {@code MISSING_UNIQUE_CONSTRAINT}. The engine names the index after the constraint it implements
      * ({@code pk_mv_e3_0_0} for the primary key, {@code uq_x} for {@code CONSTRAINT uq_x UNIQUE}), and a
-     * constraint DDLSmith declared without a name gives the engine nothing to name it after, so a name
+     * constraint DDLsmith declared without a name gives the engine nothing to name it after, so a name
      * that matches - or no name on either side - is what makes it constraint-backed.</p>
      */
     public static boolean isConstraintBackedIndex(Index index, Table table) {
@@ -422,7 +422,7 @@ public final class SchemaNormalizer {
             }
             if (actualIndex == null) {
                 // MySQL implements a UNIQUE constraint as a unique index and then reports it as a
-                // constraint only, so a unique index DDLSmith created with CREATE UNIQUE INDEX comes
+                // constraint only, so a unique index DDLsmith created with CREATE UNIQUE INDEX comes
                 // back as a UNIQUE constraint with no index behind it — the catalog genuinely cannot
                 // say which of the two was created. Uniqueness over exactly these columns is what the
                 // intended index asks for, so the constraint satisfies it; this is the mirror image of
@@ -475,7 +475,7 @@ public final class SchemaNormalizer {
     /**
      * A key that identifies an index by what it enforces.
      *
-     * <p>Uniqueness is part of the key on purpose: DDLSmith can generate both a plain and a unique
+     * <p>Uniqueness is part of the key on purpose: DDLsmith can generate both a plain and a unique
      * index over the same columns, and without uniqueness in the key one would overwrite the other in
      * the lookup map and produce a spurious uniqueness mismatch.</p>
      */
@@ -680,7 +680,7 @@ public final class SchemaNormalizer {
         // remove casts such as '5'::integer, ::double precision or ::character varying(20). The type
         // name can be two or three words, and leaving the trailing word behind ("a8 >= ('-32')
         // precision") made a CHECK constraint of the first live PostgreSQL run look different from
-        // the one DDLSmith had asked for.
+        // the one DDLsmith had asked for.
         result = result.replaceAll(
                 "::\\s*[a-zA-Z_][a-zA-Z0-9_]*(\\s+(precision|varying|with(out)?\\s+time\\s+zone))?"
                         + "(\\s*\\([^)]*\\))?(\\s*\\[\\])?",
@@ -769,7 +769,7 @@ public final class SchemaNormalizer {
         // introducer, with no space. The model writes `', '`. Comparing the two texts reported a
         // lost CHECK constraint on every single-table ISA hierarchy whose discriminator lists more
         // than one value, which is every partial specialization (it lists the root as well) — 101 of
-        // the 104 failure logs of one five-minute MySQL round. The other three are one more DDLSmith
+        // the 104 failure logs of one five-minute MySQL round. The other three are one more DDLsmith
         // gap (the suffixed name InnoDB gives a foreign key's index) and two of the documented
         // self-referencing deviation, so 102 of the 104 were the tool's own defects.
         result = normalizeListSeparators(result);

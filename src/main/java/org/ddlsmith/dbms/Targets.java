@@ -8,14 +8,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.MainOptions;
 
 /**
  * Resolves which database to connect to and opens the JDBC connection.
  *
  * <p>Embedded engines (SQLite, H2, DuckDB) are usable with no infrastructure, which is what makes
- * DDLSmith's differential mode practical: {@code --compare-with h2,duckdb} compares the same
+ * DDLsmith's differential mode practical: {@code --compare-with h2,duckdb} compares the same
  * generated schema across three engines without a single server.</p>
  */
 public final class Targets {
@@ -88,7 +88,7 @@ public final class Targets {
     }
 
     /** Opens a JDBC connection for the given configuration. */
-    public static DDLSmithDBConnection open(DatabaseConfig config, String databaseName) throws SQLException {
+    public static DDLsmithDBConnection open(DatabaseConfig config, String databaseName) throws SQLException {
         return open(config, databaseName, false);
     }
 
@@ -100,7 +100,7 @@ public final class Targets {
      *        find the tables of the first one and every oracle would report differences caused by
      *        leftover state rather than by the engine.
      */
-    public static DDLSmithDBConnection open(DatabaseConfig config, String databaseName, boolean keepDatabase)
+    public static DDLsmithDBConnection open(DatabaseConfig config, String databaseName, boolean keepDatabase)
             throws SQLException {
         String url = config.jdbcUrl(databaseName);
         if (!keepDatabase) {
@@ -125,7 +125,7 @@ public final class Targets {
         } catch (SQLException e) {
             // engines that do not support autocommit control: ignore
         }
-        return new DDLSmithDBConnection(connection, databaseName);
+        return new DDLsmithDBConnection(connection, databaseName);
     }
 
     /**

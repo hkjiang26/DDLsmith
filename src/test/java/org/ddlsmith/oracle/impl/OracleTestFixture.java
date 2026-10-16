@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 import org.ddlsmith.common.schema.CheckConstraint;
 import org.ddlsmith.common.schema.Column;
 import org.ddlsmith.common.schema.DataType;
@@ -48,11 +48,11 @@ public final class OracleTestFixture implements AutoCloseable {
 
     private static final AtomicInteger H2_DATABASES = new AtomicInteger();
 
-    private final List<DDLSmithDBConnection> connections = new ArrayList<>();
+    private final List<DDLsmithDBConnection> connections = new ArrayList<>();
 
     public RelationalSchema schema;
-    public DDLSmithDBConnection sqliteConnection;
-    public DDLSmithDBConnection h2Connection;
+    public DDLsmithDBConnection sqliteConnection;
+    public DDLsmithDBConnection h2Connection;
     public DatabaseUnderTest sqlite;
     public DatabaseUnderTest h2;
     public OracleContext context;
@@ -159,9 +159,9 @@ public final class OracleTestFixture implements AutoCloseable {
         return reduced;
     }
 
-    private DDLSmithDBConnection open(String url, String name) throws SQLException {
+    private DDLsmithDBConnection open(String url, String name) throws SQLException {
         Connection connection = DriverManager.getConnection(url);
-        DDLSmithDBConnection wrapped = new DDLSmithDBConnection(connection, name);
+        DDLsmithDBConnection wrapped = new DDLsmithDBConnection(connection, name);
         connections.add(wrapped);
         return wrapped;
     }
@@ -242,7 +242,7 @@ public final class OracleTestFixture implements AutoCloseable {
 
     @Override
     public void close() {
-        for (DDLSmithDBConnection connection : connections) {
+        for (DDLsmithDBConnection connection : connections) {
             try {
                 connection.close();
             } catch (SQLException e) {

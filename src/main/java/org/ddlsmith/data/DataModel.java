@@ -11,10 +11,10 @@ import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.common.schema.RelationalSchema;
 
 /**
- * An in-memory model of the rows that DDLSmith has inserted into a database.
+ * An in-memory model of the rows that DDLsmith has inserted into a database.
  *
  * <p>The oracles use it to know what the database is supposed to contain, so that a query result
- * can be checked against a value DDLSmith computes itself instead of against another query.</p>
+ * can be checked against a value DDLsmith computes itself instead of against another query.</p>
  */
 public class DataModel {
 
@@ -198,7 +198,7 @@ public class DataModel {
      * The canonical, engine independent textual form of one stored value.
      *
      * <p>It is the comparison form the data oracles share: a value the engine hands back must be
-     * described the same way as the value DDLSmith inserted, whatever Java type the driver chose and
+     * described the same way as the value DDLsmith inserted, whatever Java type the driver chose and
      * whatever spelling the engine uses. The rules are deliberately narrow — numeric values compare
      * by value ({@link BigDecimal#compareTo} semantics, so a scale difference is not a difference),
      * {@code CHAR(n)} values are compared with the SQL standard's trailing spaces stripped, booleans
@@ -209,7 +209,7 @@ public class DataModel {
      * data model — including extension oracles outside this package — can compare stored values the
      * same way, instead of each one inventing its own notion of equality.</p>
      *
-     * @param value the value, as inserted by DDLSmith or as returned by the engine
+     * @param value the value, as inserted by DDLsmith or as returned by the engine
      * @param type the declared type of the column, or null when it is unknown
      * @return a stable textual form; {@code "NULL"} for a null value
      */
@@ -351,7 +351,7 @@ public class DataModel {
     /**
      * The inclusive bounds the declared type imposes on an integral value.
      *
-     * <p>Needed wherever DDLSmith has to keep a value inside a column it does not control: the
+     * <p>Needed wherever DDLsmith has to keep a value inside a column it does not control: the
      * materializer clamps a graph value to its own column, and both the materializer and the
      * referential-action oracle have to keep a value inside a column the value is <em>derived</em> into
      * — a stored generated column, or a key a probe rewrites. Fitting a value to the column it is
@@ -385,7 +385,7 @@ public class DataModel {
     }
 
     /**
-     * Coerces a value to what a column of this type can store, so that a value DDLSmith derives is
+     * Coerces a value to what a column of this type can store, so that a value DDLsmith derives is
      * never one the engine has to refuse.
      *
      * <p>It adds the bounds the declared type implies: an integral value is clamped to the range of its

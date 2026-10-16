@@ -12,7 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.ddlsmith.DDLSmithDBConnection;
+import org.ddlsmith.DDLsmithDBConnection;
 
 /**
  * Shared plumbing for catalog introspection: runs queries against the engine's metadata tables and
@@ -22,7 +22,7 @@ import org.ddlsmith.DDLSmithDBConnection;
 public abstract class AbstractIntrospector implements SchemaIntrospector {
 
     /** Runs a catalog query and materializes the rows as maps keyed by lowercased column label. */
-    protected List<Map<String, Object>> query(DDLSmithDBConnection connection, String sql, Object... parameters)
+    protected List<Map<String, Object>> query(DDLsmithDBConnection connection, String sql, Object... parameters)
             throws SQLException {
         List<Map<String, Object>> rows = new ArrayList<>();
         try (PreparedStatement statement = connection.getConnection().prepareStatement(sql)) {

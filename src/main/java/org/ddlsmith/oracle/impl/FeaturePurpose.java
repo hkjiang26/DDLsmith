@@ -8,7 +8,7 @@ import java.util.Locale;
 import org.ddlsmith.ddl.DDLFeature;
 
 /**
- * Reads and writes the <em>purpose convention</em> that DDLSmith uses to attach the DDL features a
+ * Reads and writes the <em>purpose convention</em> that DDLsmith uses to attach the DDL features a
  * statement relies on to the {@code purpose} field of
  * {@link org.ddlsmith.oracle.OracleContext.ExecutionEvent}.
  *

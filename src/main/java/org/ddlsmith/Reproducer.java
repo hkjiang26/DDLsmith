@@ -40,7 +40,7 @@ public final class Reproducer {
         org.ddlsmith.ddl.Dialect dialect = org.ddlsmith.dbms.Dialects.forName(dialectName);
         System.out.println("replaying " + statements.size() + " statements from " + logFile + " on " + dialectName);
         int executed = 0;
-        try (DDLSmithDBConnection connection = Targets.open(target, databaseName)) {
+        try (DDLsmithDBConnection connection = Targets.open(target, databaseName)) {
             // The replay namespace is derived and prepared exactly as AbstractJdbcProvider prepares it
             // for a run, and for the same reason. Without this a replay on a client/server engine
             // inherits whatever the previous replay left behind: the second replay of one log stops at
@@ -86,7 +86,7 @@ public final class Reproducer {
      * both of MySQL's statements are {@code IF EXISTS}/{@code IF NOT EXISTS}, and an engine that keeps
      * no namespace of its own gets an empty list here rather than a failure.
      */
-    private static void runSetupQuietly(DDLSmithDBConnection connection, String sql) {
+    private static void runSetupQuietly(DDLsmithDBConnection connection, String sql) {
         try {
             connection.executeStatement(sql);
         } catch (Exception e) {
@@ -94,7 +94,7 @@ public final class Reproducer {
         }
     }
 
-    /** Extracts executable statements from a DDLSmith log, ignoring its comment and report lines. */
+    /** Extracts executable statements from a DDLsmith log, ignoring its comment and report lines. */
     static List<String> readStatements(Path logFile) throws IOException {
         List<String> statements = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -104,7 +104,7 @@ public final class Reproducer {
                 continue;
             }
             // the failure report starts with a banner; everything after it is prose, not SQL
-            if (line.startsWith("===") || line.startsWith("DDLSmith failure")) {
+            if (line.startsWith("===") || line.startsWith("DDLsmith failure")) {
                 break;
             }
             if (line.startsWith("--")) {

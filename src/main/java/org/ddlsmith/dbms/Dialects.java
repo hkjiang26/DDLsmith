@@ -9,7 +9,7 @@ import java.util.function.Supplier;
 import org.ddlsmith.ddl.Dialect;
 
 /**
- * The dialects compiled into DDLSmith.
+ * The dialects compiled into DDLsmith.
  *
  * <p>Dialects are created on demand and cached, because rendering is stateless and the same
  * instance can be shared by every thread.</p>

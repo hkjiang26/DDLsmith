@@ -32,7 +32,7 @@ import org.ddlsmith.oracle.OracleFailure;
  *   <li><b>a report that can be filed as-is</b>: engine and version, what was asked for, what happened,
  *       why it is a bug, and a pasteable reproduction reduced to the statements that matter;</li>
  *   <li><b>an honest confidence level</b>, because an oracle that is still experimental can produce a
- *       finding that is DDLSmith's fault rather than the engine's.</li>
+ *       finding that is DDLsmith's fault rather than the engine's.</li>
  * </ul>
  *
  * <p>Layout:</p>
@@ -271,7 +271,7 @@ public final class BugRepository {
         return VERIFIED_ORACLES.contains(entry.oracleName)
                 ? "high — reported by a verified oracle"
                 : "**needs review** — reported by an experimental oracle, which can also be wrong about "
-                        + "DDLSmith's own behaviour";
+                        + "DDLsmith's own behaviour";
     }
 
     private void write(BugEntry entry, MainOptions options, String detailContext) {
@@ -499,7 +499,7 @@ public final class BugRepository {
      * generated a different schema, and the reader concluded the report was wrong.</p>
      */
     private String reproduceCommand(BugEntry entry, MainOptions options) {
-        StringBuilder sb = new StringBuilder("java -jar target/DDLSmith.jar ").append(entry.engine);
+        StringBuilder sb = new StringBuilder("java -jar target/DDLsmith.jar ").append(entry.engine);
         sb.append(" --random-seed ").append(entry.firstSeed);
         if (entry.databasesPerGraph > 1) {
             // the seed names the graph; the slot names the database of the group that failed
@@ -557,7 +557,7 @@ public final class BugRepository {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("# Database defects found by DDLSmith\n\n");
+        sb.append("# Database defects found by DDLsmith\n\n");
         sb.append("One report per distinct defect. A defect found in many generated databases appears once, ")
                 .append("with the number of occurrences as evidence.\n\n");
         List<BugEntry> all = getEntries();
@@ -831,7 +831,7 @@ public final class BugRepository {
          *         last non-comment line before the error is the statement under test.
          */
         /**
-         * @return the lines of the failure that quote the engine rather than describe DDLSmith's
+         * @return the lines of the failure that quote the engine rather than describe DDLsmith's
          *         expectation — the error text, the SQL state, and the differences the comparison found
          */
         private static List<String> engineResponseOf(OracleFailure failure) {
