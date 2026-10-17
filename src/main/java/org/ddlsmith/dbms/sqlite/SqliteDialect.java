@@ -609,6 +609,10 @@ public class SqliteDialect extends AbstractDialect {
         if (value == null) {
             return "NULL";
         }
+        if (value instanceof Object[]) {
+            // SQLite has no array type, so a column of that type was adapted to text by the adapter
+            return renderArrayAsText((Object[]) value);
+        }
         if (value instanceof Boolean) {
             // SQLite has no boolean literals: TRUE/FALSE are only aliases for 1/0 since 3.23
             return ((Boolean) value) ? "1" : "0";

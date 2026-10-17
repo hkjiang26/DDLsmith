@@ -30,6 +30,7 @@ import org.ddlsmith.graph.gen.DefaultGraphToERMapper;
 import org.ddlsmith.graph.gen.ERDiagramPrinter;
 import org.ddlsmith.graph.gen.GraphGenerators;
 import org.ddlsmith.graph.gen.GraphPropertyFiller;
+import org.ddlsmith.graph.gen.RandomGraphFiller;
 import org.ddlsmith.graph.gen.RandomGraphSchemaGenerator;
 import org.ddlsmith.graph.gen.SelfCheck;
 import org.junit.jupiter.api.Test;
@@ -136,18 +137,28 @@ class GraphGenerationTest {
     void schemaGeneratorShapeIsStable() {
         Set<Integer> labelCounts = new LinkedHashSet<>();
         Set<Integer> typeCounts = new LinkedHashSet<>();
+        Set<Integer> attributeCounts = new LinkedHashSet<>();
         for (int seed = 0; seed < SEEDS; seed++) {
             Randomly.setSeed(seed);
             GraphSchema schema = new RandomGraphSchemaGenerator().generate();
+            GraphFilling filling = new RandomGraphFiller().plan(schema);
             SelfCheck.Report report = new SelfCheck.Report();
-            SelfCheck.checkSchemaShape(report, "seed " + seed, schema);
+            SelfCheck.checkBaseGraphShape(report, "seed " + seed, schema);
+            SelfCheck.checkFillingShape(report, "seed " + seed, schema, filling);
             assertNoFailures(report, "schema shape at seed " + seed);
             labelCounts.add(schema.getLabelCount());
             typeCounts.add(schema.getRelationshipTypeCount());
+            for (int label = 0; label < schema.getLabelCount(); label++) {
+                attributeCounts.add(filling.attributesOfLabel(label).size());
+            }
         }
         assertTrue(labelCounts.contains(4) && labelCounts.contains(8),
                 "the label count should span 4..8, saw " + labelCounts);
         assertTrue(typeCounts.contains(4), "the relationship type count should reach its minimum, saw " + typeCounts);
+        assertTrue(attributeCounts.stream().anyMatch(count -> count <= 1),
+                "the lean filling profile should reach an almost attribute-less label, saw " + attributeCounts);
+        assertTrue(attributeCounts.stream().anyMatch(count -> count >= 8),
+                "the wide filling profile should reach a wide label, saw " + attributeCounts);
     }
 
     /* ------------------------------------------------------------------ property filling */
@@ -155,7 +166,8 @@ class GraphGenerationTest {
     @Test
     void propertyFillerCoversEveryDataType() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel label = new GraphLabel(0, "L0");
+        schema.addLabel(new GraphLabel(0, "L0"));
+        GraphFilling filling = new GraphFilling(1, 0);
         List<DataType> types = List.of(DataType.smallint(), DataType.integer(), DataType.bigint(),
                 DataType.decimal(10, 2), DataType.real(), DataType.doublePrecision(), DataType.charType(5),
                 DataType.varchar(20), DataType.text(), DataType.bool(), DataType.date(), DataType.time(),
@@ -163,12 +175,11 @@ class GraphGenerationTest {
                 DataType.uuid(), DataType.enumOf(List.of("alpha", "beta")), DataType.arrayOf(DataType.integer()));
         int index = 0;
         for (DataType type : types) {
-            label.addProperty(new GraphProperty("k" + index++, type, 1.0));
+            filling.addLabelAttribute(0, new GraphProperty("k" + index++, type, 1.0));
         }
         // one optional slot, to check that an absent key is how "null" is modelled
-        label.addProperty(new GraphProperty("k" + index, DataType.integer(), 0.5));
+        filling.addLabelAttribute(0, new GraphProperty("k" + index, DataType.integer(), 0.5));
         int optionalIndex = index;
-        schema.addLabel(label);
 
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         int nodeCount = 40;
@@ -176,7 +187,7 @@ class GraphGenerationTest {
             graph.addNode(new GraphNode(i, 0));
         }
         Randomly.setSeed(1234);
-        GraphPropertyFiller.fill(graph, schema);
+        GraphPropertyFiller.fill(graph, filling);
 
         Set<Object> integerValues = new LinkedHashSet<>();
         int present = 0;
@@ -219,12 +230,12 @@ class GraphGenerationTest {
     @Test
     void mapperTurnsSelfLoopTypesIntoMultivaluedAttributes() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel label = new GraphLabel(0, "L0");
-        label.addProperty(new GraphProperty("k0", DataType.varchar(20), 1.0));
-        schema.addLabel(label);
+        schema.addLabel(new GraphLabel(0, "L0"));
         GraphRelationshipType type = new GraphRelationshipType(0, "R0", 0, 0);
         type.setFromCardinality(Cardinality.MANY).setToCardinality(Cardinality.MANY);
         schema.addRelationshipType(type);
+        GraphFilling filling = new GraphFilling(1, 1);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.varchar(20), 1.0));
 
         GraphModel selfLoops = new GraphModel().setGeneratorName("fixture");
         selfLoops.addNode(new GraphNode(0, 0));
@@ -236,7 +247,7 @@ class GraphGenerationTest {
         int kept = 0;
         for (int seed = 0; seed < 30; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(selfLoops, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(selfLoops, schema, filling);
             EREntity entity = diagram.getEntity("E0");
             assertNotNull(entity);
             ERAttribute multivalued = entity.getAttribute("mv_R0");
@@ -265,7 +276,7 @@ class GraphGenerationTest {
         withRealEdge.addEdge(new GraphEdge(2, 0, 1, 0));
         for (int seed = 0; seed < 30; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(withRealEdge, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(withRealEdge, schema, filling);
             assertNull(diagram.getEntity("E0").getAttribute("mv_R0"),
                     "a recursive type with a non-self-loop edge is a relationship");
             assertNotNull(diagram.getRelationship("R0"));
@@ -275,16 +286,15 @@ class GraphGenerationTest {
     @Test
     void mapperDetectsWeakEntities() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel dependent = new GraphLabel(0, "L0");
-        dependent.addProperty(new GraphProperty("k0", DataType.varchar(20), 0.5));
-        schema.addLabel(dependent);
-        GraphLabel owner = new GraphLabel(1, "L1");
-        owner.addProperty(new GraphProperty("k1", DataType.integer(), 1.0));
-        schema.addLabel(owner);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        schema.addLabel(new GraphLabel(1, "L1"));
         GraphRelationshipType ownership = new GraphRelationshipType(0, "R0", 0, 1);
         ownership.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
         ownership.setFromParticipation(Participation.TOTAL);
         schema.addRelationshipType(ownership);
+        GraphFilling filling = new GraphFilling(2, 2);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.varchar(20), 0.5));
+        filling.addLabelAttribute(1, new GraphProperty("k1", DataType.integer(), 1.0));
 
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         graph.addNode(new GraphNode(0, 0));
@@ -295,7 +305,7 @@ class GraphGenerationTest {
         graph.addEdge(new GraphEdge(1, 1, 3, 0));
 
         Randomly.setSeed(3);
-        ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+        ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
         EREntity entity = diagram.getEntity("E0");
         assertTrue(entity.isWeak(), "E0 has no key of its own and exactly one owner relationship");
         assertEquals("E1", entity.getOwnerEntity());
@@ -311,7 +321,7 @@ class GraphGenerationTest {
         extra.setFromCardinality(Cardinality.MANY).setToCardinality(Cardinality.MANY);
         schema.addRelationshipType(extra);
         Randomly.setSeed(3);
-        ERDiagram second = new DefaultGraphToERMapper().map(graph, schema);
+        ERDiagram second = new DefaultGraphToERMapper().map(graph, schema, filling);
         assertFalse(second.getEntity("E0").isWeak(), "with two incident types the heuristic must not fire");
         assertTrue(second.getEntity("E0").hasPrimaryKey(), "the synthetic key stays a primary key");
     }
@@ -319,18 +329,9 @@ class GraphGenerationTest {
     @Test
     void mapperDetectsGeneralizationHierarchiesUpToThreeLevels() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel sub = new GraphLabel(0, "L0");
-        sub.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        sub.addProperty(new GraphProperty("k1", DataType.varchar(20), 1.0));
-        sub.addProperty(new GraphProperty("k2", DataType.bool(), 1.0));
-        schema.addLabel(sub);
-        GraphLabel middle = new GraphLabel(1, "L1");
-        middle.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        middle.addProperty(new GraphProperty("k1", DataType.varchar(20), 1.0));
-        schema.addLabel(middle);
-        GraphLabel top = new GraphLabel(2, "L2");
-        top.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        schema.addLabel(top);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        schema.addLabel(new GraphLabel(1, "L1"));
+        schema.addLabel(new GraphLabel(2, "L2"));
         GraphRelationshipType first = new GraphRelationshipType(0, "R0", 0, 1);
         first.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
         first.setFromParticipation(Participation.TOTAL);
@@ -339,6 +340,16 @@ class GraphGenerationTest {
         second.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
         second.setFromParticipation(Participation.TOTAL);
         schema.addRelationshipType(second);
+        // the subtype chain L0 -> L1 -> L2: every child declares the parent's attributes plus its own
+        GraphFilling filling = new GraphFilling(3, 2);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(0, new GraphProperty("k1", DataType.varchar(20), 1.0));
+        filling.addLabelAttribute(0, new GraphProperty("k2", DataType.bool(), 1.0));
+        filling.addLabelAttribute(1, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(1, new GraphProperty("k1", DataType.varchar(20), 1.0));
+        filling.addLabelAttribute(2, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addParent(0, 1);
+        filling.addParent(1, 2);
 
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         graph.addNode(new GraphNode(0, 0));
@@ -351,7 +362,7 @@ class GraphGenerationTest {
         int chains = 0;
         for (int seed = 0; seed < 30; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
             for (EREntity entity : diagram.getEntities()) {
                 assertTrue(isaDepth(diagram, entity) <= 3,
                         "hierarchies must stay at most three levels deep, " + entity.getName() + " is deeper");
@@ -393,17 +404,18 @@ class GraphGenerationTest {
 
     @Test
     void mapperMakesAttributeInheritanceImplicit() {
-        // A subtype inherits its supertype's attributes; it must not re-declare them. The graph
-        // schema generator models inheritance by copying the parent's property slots into the child
-        // label, so before this was fixed every subtype carried its own copies, and merging a
-        // lattice into one table emitted both `a0` and `a0_2` for one logical attribute.
+        // A subtype inherits its supertype's attributes; it must not re-declare them. The filling
+        // models inheritance by copying the parent's attribute slots into the child label, so before
+        // this was fixed every subtype carried its own copies, and merging a lattice into one table
+        // emitted both `a0` and `a0_2` for one logical attribute.
         int subtypes = 0;
         for (String name : GraphGenerators.names()) {
             for (int seed = 0; seed < 60; seed++) {
                 Randomly.setSeed(seed);
                 GraphSchema schema = new RandomGraphSchemaGenerator().generate();
                 GraphModel graph = GraphGenerators.forName(name).generate(schema, new GraphGenerationOptions());
-                ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+                GraphFilling filling = new RandomGraphFiller().plan(schema);
+                ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
                 for (EREntity entity : diagram.getEntities()) {
                     if (!entity.isGeneralizationSubtype()) {
                         continue;
@@ -436,12 +448,12 @@ class GraphGenerationTest {
     void mapperKeepsDiagramInvariantsForHandBuiltSchemas() {
         // every label gets an entity, even when it has no node at all
         GraphSchema schema = new GraphSchema();
-        GraphLabel empty = new GraphLabel(0, "L0");
-        empty.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        schema.addLabel(empty);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        GraphFilling filling = new GraphFilling(1, 0);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         Randomly.setSeed(1);
-        ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+        ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
         assertEquals(1, diagram.getEntities().size());
         assertFalse(diagram.getEntity("E0").getAttributes().isEmpty(), "an entity always has an attribute");
         assertTrue(diagram.getRelationships().isEmpty(), "a type without edges produces no relationship");
@@ -452,7 +464,8 @@ class GraphGenerationTest {
     void mapperSurvivesDegenerateInputs() {
         DefaultGraphToERMapper mapper = new DefaultGraphToERMapper();
         Randomly.setSeed(0);
-        ERDiagram empty = mapper.map(new GraphModel().setGeneratorName("none"), new GraphSchema());
+        ERDiagram empty = mapper.map(new GraphModel().setGeneratorName("none"), new GraphSchema(),
+                new GraphFilling(0, 0));
         assertNotNull(empty);
         assertEquals(0, empty.getEntities().size());
         assertEquals(0, empty.getRelationships().size());
@@ -460,16 +473,16 @@ class GraphGenerationTest {
 
         // a relationship type that points at labels the schema does not have must be ignored
         GraphSchema broken = new GraphSchema();
-        GraphLabel label = new GraphLabel(0, "L0");
-        label.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        broken.addLabel(label);
+        broken.addLabel(new GraphLabel(0, "L0"));
         broken.addRelationshipType(new GraphRelationshipType(0, "R0", 5, 9));
+        GraphFilling filling = new GraphFilling(1, 1);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
         GraphModel graph = new GraphModel().setGeneratorName("broken");
         graph.addNode(new GraphNode(0, 0));
         graph.addEdge(new GraphEdge(0, 0, 0, 0));
         graph.addEdge(new GraphEdge(1, 0, 0, 99));
         Randomly.setSeed(0);
-        ERDiagram diagram = mapper.map(graph, broken);
+        ERDiagram diagram = mapper.map(graph, broken, filling);
         assertEquals(1, diagram.getEntities().size());
         assertTrue(diagram.getRelationships().isEmpty());
         for (ERRelationship relationship : diagram.getRelationships()) {
@@ -482,13 +495,14 @@ class GraphGenerationTest {
 
     @Test
     void mapperMergesTrianglesIntoTernaryRelationships() {
-        GraphSchema schema = triangleSchema();
+        Filled fixture = triangleSchema();
+        GraphSchema schema = fixture.schema;
         GraphModel graph = triangleGraph();
         int ternaries = 0;
         int keptBinary = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, fixture.filling);
             ERRelationship ternary = null;
             for (ERRelationship relationship : diagram.getRelationships()) {
                 if (relationship.isNary()) {
@@ -526,12 +540,13 @@ class GraphGenerationTest {
 
     @Test
     void mapperReadsTrianglesAsAggregations() {
-        GraphSchema schema = triangleSchema();
+        Filled fixture = triangleSchema();
+        GraphSchema schema = fixture.schema;
         GraphModel graph = triangleGraph();
         int aggregations = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, fixture.filling);
             List<EREntity> aggregates = diagram.getAggregationEntities();
             if (aggregates.isEmpty()) {
                 continue;
@@ -570,15 +585,13 @@ class GraphGenerationTest {
     @Test
     void mapperDetectsUnionTypes() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel first = new GraphLabel(0, "L0");
-        first.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        schema.addLabel(first);
-        GraphLabel second = new GraphLabel(1, "L1");
-        second.addProperty(new GraphProperty("k1", DataType.varchar(20), 1.0));
-        schema.addLabel(second);
-        GraphLabel category = new GraphLabel(2, "L2");
-        category.addProperty(new GraphProperty("k2", DataType.integer(), 1.0));
-        schema.addLabel(category);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        schema.addLabel(new GraphLabel(1, "L1"));
+        schema.addLabel(new GraphLabel(2, "L2"));
+        GraphFilling filling = new GraphFilling(3, 2);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(1, new GraphProperty("k1", DataType.varchar(20), 1.0));
+        filling.addLabelAttribute(2, new GraphProperty("k2", DataType.integer(), 1.0));
         // two 1:1 links that are PARTIAL on the category's own side: the union-type shape
         GraphRelationshipType toFirst = new GraphRelationshipType(0, "R0", 2, 0);
         toFirst.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
@@ -597,7 +610,7 @@ class GraphGenerationTest {
         int categories = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
             EREntity entity = diagram.getEntity("E2");
             if (!entity.isCategory()) {
                 continue;
@@ -619,36 +632,51 @@ class GraphGenerationTest {
 
     @Test
     void mapperProducesCompositeKeysAndCompositePartialKeys() {
-        // a label with two mandatory slots sometimes gets both as its key
+        // a label with two mandatory slots sometimes gets both as its key; the filling usually sets
+        // the key itself, so this exercises the mapper's fallback for a filling that left it open
         GraphSchema schema = new GraphSchema();
-        GraphLabel label = new GraphLabel(0, "L0");
-        label.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        label.addProperty(new GraphProperty("k1", DataType.varchar(20), 1.0));
-        schema.addLabel(label);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        GraphFilling filling = new GraphFilling(1, 0);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(0, new GraphProperty("k1", DataType.varchar(20), 1.0));
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         graph.addNode(new GraphNode(0, 0));
         int compositeKeys = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
             if (diagram.getEntity("E0").getPrimaryKeyAttributes().size() == 2) {
                 compositeKeys++;
             }
         }
         assertTrue(compositeKeys > 0, "a composite natural key was never produced in 40 seeds");
 
+        // the filling can also declare the composite key itself, and the mapper must honour it
+        GraphFilling declared = new GraphFilling(1, 0);
+        declared.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0)
+                .setKeyRole(GraphProperty.KeyRole.PRIMARY));
+        declared.addLabelAttribute(0, new GraphProperty("k1", DataType.varchar(20), 1.0)
+                .setKeyRole(GraphProperty.KeyRole.PRIMARY));
+        declared.addLabelAttribute(0, new GraphProperty("k2", DataType.varchar(20), 1.0)
+                .setKeyRole(GraphProperty.KeyRole.ALTERNATE));
+        Randomly.setSeed(0);
+        EREntity declaredEntity = new DefaultGraphToERMapper().map(graph, schema, declared).getEntity("E0");
+        assertEquals(2, declaredEntity.getPrimaryKeyAttributes().size(),
+                "the primary key the filling declared must be the one the entity gets");
+        assertEquals(1, declaredEntity.getAlternateKeyAttributes().size(),
+                "the alternate key the filling declared must be recorded on the entity");
+
         // a weak entity sometimes gets two partial key attributes
         GraphSchema weakSchema = new GraphSchema();
-        GraphLabel dependent = new GraphLabel(0, "L0");
-        dependent.addProperty(new GraphProperty("k0", DataType.varchar(20), 0.5));
-        weakSchema.addLabel(dependent);
-        GraphLabel owner = new GraphLabel(1, "L1");
-        owner.addProperty(new GraphProperty("k1", DataType.integer(), 1.0));
-        weakSchema.addLabel(owner);
+        weakSchema.addLabel(new GraphLabel(0, "L0"));
+        weakSchema.addLabel(new GraphLabel(1, "L1"));
         GraphRelationshipType ownership = new GraphRelationshipType(0, "R0", 0, 1);
         ownership.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
         ownership.setFromParticipation(Participation.TOTAL);
         weakSchema.addRelationshipType(ownership);
+        GraphFilling weakFilling = new GraphFilling(2, 1);
+        weakFilling.addLabelAttribute(0, new GraphProperty("k0", DataType.varchar(20), 0.5));
+        weakFilling.addLabelAttribute(1, new GraphProperty("k1", DataType.integer(), 1.0));
         GraphModel weakGraph = new GraphModel().setGeneratorName("fixture");
         weakGraph.addNode(new GraphNode(0, 0));
         weakGraph.addNode(new GraphNode(1, 1));
@@ -656,7 +684,7 @@ class GraphGenerationTest {
         int compositePartial = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(weakGraph, weakSchema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(weakGraph, weakSchema, weakFilling);
             EREntity entity = diagram.getEntity("E0");
             assertTrue(entity.isWeak(), "the fixture must produce a weak entity");
             if (entity.getPartialKeyAttributes().size() == 2) {
@@ -670,18 +698,18 @@ class GraphGenerationTest {
     void mapperProducesNestedAndMultivaluedCompositeAttributes() {
         // nested composites: three same-typed attributes let the second component become composite
         GraphSchema schema = new GraphSchema();
-        GraphLabel label = new GraphLabel(0, "L0");
-        label.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        label.addProperty(new GraphProperty("k1", DataType.varchar(20), 0.6));
-        label.addProperty(new GraphProperty("k2", DataType.varchar(20), 0.6));
-        label.addProperty(new GraphProperty("k3", DataType.varchar(20), 0.6));
-        schema.addLabel(label);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        GraphFilling filling = new GraphFilling(1, 0);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(0, new GraphProperty("k1", DataType.varchar(20), 0.6));
+        filling.addLabelAttribute(0, new GraphProperty("k2", DataType.varchar(20), 0.6));
+        filling.addLabelAttribute(0, new GraphProperty("k3", DataType.varchar(20), 0.6));
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         graph.addNode(new GraphNode(0, 0));
         int nested = 0;
         for (int seed = 0; seed < 60; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
             for (ERAttribute attribute : diagram.getEntity("E0").getAttributes()) {
                 if (!attribute.isComposite()) {
                     continue;
@@ -697,14 +725,14 @@ class GraphGenerationTest {
 
         // a multi-valued attribute taken from a self-loop type can be composite
         GraphSchema mvSchema = new GraphSchema();
-        GraphLabel mvLabel = new GraphLabel(0, "L0");
-        mvLabel.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        mvSchema.addLabel(mvLabel);
+        mvSchema.addLabel(new GraphLabel(0, "L0"));
         GraphRelationshipType selfLoop = new GraphRelationshipType(0, "R0", 0, 0);
         selfLoop.setFromCardinality(Cardinality.MANY).setToCardinality(Cardinality.MANY);
-        selfLoop.addProperty(new GraphProperty("k1", DataType.integer(), 1.0));
-        selfLoop.addProperty(new GraphProperty("k2", DataType.varchar(20), 1.0));
         mvSchema.addRelationshipType(selfLoop);
+        GraphFilling mvFilling = new GraphFilling(1, 1);
+        mvFilling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        mvFilling.addTypeAttribute(0, new GraphProperty("k1", DataType.integer(), 1.0));
+        mvFilling.addTypeAttribute(0, new GraphProperty("k2", DataType.varchar(20), 1.0));
         GraphModel mvGraph = new GraphModel().setGeneratorName("fixture");
         mvGraph.addNode(new GraphNode(0, 0));
         mvGraph.addEdge(new GraphEdge(0, 0, 0, 0));
@@ -712,7 +740,7 @@ class GraphGenerationTest {
         int multivaluedSimple = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(mvGraph, mvSchema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(mvGraph, mvSchema, mvFilling);
             ERAttribute attribute = diagram.getEntity("E0").getAttribute("mv_R0");
             if (attribute == null) {
                 // the conversion is probabilistic: the other branch keeps the relationship
@@ -734,17 +762,17 @@ class GraphGenerationTest {
     @Test
     void mapperDrawsSpecializationCompleteness() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel sub = new GraphLabel(0, "L0");
-        sub.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        sub.addProperty(new GraphProperty("k1", DataType.varchar(20), 1.0));
-        schema.addLabel(sub);
-        GraphLabel top = new GraphLabel(1, "L1");
-        top.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        schema.addLabel(top);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        schema.addLabel(new GraphLabel(1, "L1"));
         GraphRelationshipType link = new GraphRelationshipType(0, "R0", 0, 1);
         link.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.ONE);
         link.setFromParticipation(Participation.TOTAL);
         schema.addRelationshipType(link);
+        GraphFilling filling = new GraphFilling(2, 1);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(0, new GraphProperty("k1", DataType.varchar(20), 1.0));
+        filling.addLabelAttribute(1, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addParent(0, 1);
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         graph.addNode(new GraphNode(0, 0));
         graph.addNode(new GraphNode(1, 1));
@@ -753,7 +781,7 @@ class GraphGenerationTest {
         int partial = 0;
         for (int seed = 0; seed < 40; seed++) {
             Randomly.setSeed(seed);
-            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema);
+            ERDiagram diagram = new DefaultGraphToERMapper().map(graph, schema, filling);
             EREntity supertype = diagram.getEntity("E1");
             if (!supertype.isGeneralizationSupertype()) {
                 continue;
@@ -771,30 +799,45 @@ class GraphGenerationTest {
     /* ------------------------------------------------------------------ fixtures */
 
     /**
+     * A hand-built fixture now has two halves: the base graph schema (labels and relationship types,
+     * no attributes) and the filling that gives them attributes. This holder keeps the two together,
+     * because every mapper call needs both.
+     */
+    private static final class Filled {
+        private final GraphSchema schema;
+        private final GraphFilling filling;
+
+        private Filled(GraphSchema schema, GraphFilling filling) {
+            this.schema = schema;
+            this.filling = filling;
+        }
+    }
+
+    /**
      * Three labels pairwise connected by three relationship types, each instantiated: the shape the
      * mapper reads either as a ternary relationship or as an aggregation. The first pair is M:N, so
      * the aggregation reading has an inner relationship that maps to a join table.
      */
-    private static GraphSchema triangleSchema() {
+    private static Filled triangleSchema() {
         GraphSchema schema = new GraphSchema();
+        GraphFilling filling = new GraphFilling(3, 3);
         for (int i = 0; i < 3; i++) {
-            GraphLabel label = new GraphLabel(i, "L" + i);
-            label.addProperty(new GraphProperty("k" + i, DataType.integer(), 1.0));
-            schema.addLabel(label);
+            schema.addLabel(new GraphLabel(i, "L" + i));
+            filling.addLabelAttribute(i, new GraphProperty("k" + i, DataType.integer(), 1.0));
         }
         GraphRelationshipType inner = new GraphRelationshipType(0, "R0", 0, 1);
         inner.setFromCardinality(Cardinality.MANY).setToCardinality(Cardinality.MANY);
-        inner.addProperty(new GraphProperty("k10", DataType.integer(), 1.0));
         schema.addRelationshipType(inner);
+        filling.addTypeAttribute(0, new GraphProperty("k10", DataType.integer(), 1.0));
         GraphRelationshipType first = new GraphRelationshipType(1, "R1", 0, 2);
         first.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.MANY);
-        first.addProperty(new GraphProperty("k11", DataType.varchar(20), 1.0));
         schema.addRelationshipType(first);
+        filling.addTypeAttribute(1, new GraphProperty("k11", DataType.varchar(20), 1.0));
         GraphRelationshipType second = new GraphRelationshipType(2, "R2", 1, 2);
         second.setFromCardinality(Cardinality.ONE).setToCardinality(Cardinality.MANY);
-        second.addProperty(new GraphProperty("k12", DataType.date(), 1.0));
         schema.addRelationshipType(second);
-        return schema;
+        filling.addTypeAttribute(2, new GraphProperty("k12", DataType.date(), 1.0));
+        return new Filled(schema, filling);
     }
 
     private static GraphModel triangleGraph() {
@@ -858,11 +901,12 @@ class GraphGenerationTest {
         assertTrue(mermaid.contains("E0 ||--o{ E1 : R0"), mermaid);
         assertTrue(mermaid.contains("\"derived\""), mermaid);
 
-        // the graph description must mention the schema and the statistics too
+        // the graph description must mention the base graph, the filling and the statistics
         Randomly.setSeed(5);
         GraphSchema schema = new RandomGraphSchemaGenerator().generate();
         GraphModel graph = GraphGenerators.forName("random").generate(schema, new GraphGenerationOptions());
-        String graphDescription = ERDiagramPrinter.describe(graph, schema);
+        GraphFilling filling = new RandomGraphFiller().plan(schema);
+        String graphDescription = ERDiagramPrinter.describe(graph, schema, filling);
         assertTrue(graphDescription.contains("graph random"), graphDescription);
         assertTrue(graphDescription.contains("labels"), graphDescription);
         assertTrue(graphDescription.contains("statistics"), graphDescription);
@@ -874,18 +918,19 @@ class GraphGenerationTest {
     @Test
     void enforcerRepairsEveryConstraintKind() {
         GraphSchema schema = new GraphSchema();
-        GraphLabel from = new GraphLabel(0, "L0");
-        from.addProperty(new GraphProperty("k0", DataType.integer(), 1.0));
-        schema.addLabel(from);
-        GraphLabel to = new GraphLabel(1, "L1");
-        to.addProperty(new GraphProperty("k1", DataType.integer(), 1.0));
-        schema.addLabel(to);
+        schema.addLabel(new GraphLabel(0, "L0"));
+        schema.addLabel(new GraphLabel(1, "L1"));
         GraphRelationshipType type = new GraphRelationshipType(0, "R0", 0, 1);
         type.setFromCardinality(Cardinality.ONE);
         type.setToCardinality(Cardinality.ONE);
         type.setFromParticipation(Participation.TOTAL);
         type.setToParticipation(Participation.TOTAL);
         schema.addRelationshipType(type);
+        // a base graph carries no attributes, but the printer is given a filling so its output is the
+        // complete input of this database
+        GraphFilling filling = new GraphFilling(2, 1);
+        filling.addLabelAttribute(0, new GraphProperty("k0", DataType.integer(), 1.0));
+        filling.addLabelAttribute(1, new GraphProperty("k1", DataType.integer(), 1.0));
 
         GraphModel graph = new GraphModel().setGeneratorName("fixture");
         for (int i = 0; i < 4; i++) {
@@ -899,7 +944,7 @@ class GraphGenerationTest {
         Randomly.setSeed(11);
         CardinalityEnforcer.enforce(graph, schema);
         assertTrue(CardinalityEnforcer.isValid(graph, schema),
-                "every constraint must hold after enforce\n" + ERDiagramPrinter.describe(graph, schema));
+                "every constraint must hold after enforce\n" + ERDiagramPrinter.describe(graph, schema, filling));
         assertEquals(2, graph.getEdgesOfType(0).size(), "a bijection between the two labels");
         for (int i = 0; i < graph.getNodeCount(); i++) {
             int label = graph.getNode(i).getLabelIndex();

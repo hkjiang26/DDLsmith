@@ -282,6 +282,9 @@ public interface Dialect extends DDLVisitor<String> {
         if (value == null) {
             return "NULL";
         }
+        if (value instanceof Object[]) {
+            return renderArrayLiteral((Object[]) value, type);
+        }
         if (value instanceof Number || value instanceof Boolean) {
             return value.toString();
         }
@@ -289,6 +292,55 @@ public interface Dialect extends DDLVisitor<String> {
             return "X'" + toHex((byte[]) value) + "'";
         }
         return "'" + value.toString().replace("'", "''") + "'";
+    }
+
+    /**
+     * Renders an array value as an array literal.
+     *
+     * <p>{@code ARRAY[…]} is the spelling the embedded engines and PostgreSQL share: probed on H2
+     * 2.3.232 and DuckDB 1.3.0, both accept {@code ARRAY[1, 2]} for an integer array column and both
+     * refuse the PostgreSQL {@code '{1,2}'} text form (H2: "Data conversion error converting '{}'";
+     * DuckDB: "Type VARCHAR with value '{1,2}' can't be cast to the destination type INT[]"), which is
+     * what the row generator used to emit for every array column — and which made the engine look
+     * too strict about a row DDLsmith had declared valid.</p>
+     *
+     * <p>A dialect whose engine has no array type never sees one: the adapter rewrites the column to
+     * a textual type, and such a dialect renders the value as text instead (see
+     * {@link #renderArrayAsText}).</p>
+     */
+    default String renderArrayLiteral(Object[] values, DataType arrayType) {
+        DataType element = arrayType == null ? null : arrayType.getElementType();
+        StringBuilder sb = new StringBuilder("ARRAY[");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(renderLiteral(values[i], element));
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * Renders an array value for a column whose type the adapter rewrote to text, because the engine
+     * has no array type of its own. The braces form is what such an engine stores as a string.
+     */
+    default String renderArrayAsText(Object[] values) {
+        return "'" + arrayText(values).replace("'", "''") + "'";
+    }
+
+    /**
+     * @return an array value as text, the form an engine without an array type stores; used both for
+     *         rendering the literal and for fitting a graph value to a column the adapter rewrote
+     */
+    static String arrayText(Object[] values) {
+        StringBuilder sb = new StringBuilder("{");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(values[i] == null ? "" : values[i].toString().replace(",", " ").replace("}", " "));
+        }
+        return sb.append('}').toString();
     }
 
     private static String toHex(byte[] bytes) {

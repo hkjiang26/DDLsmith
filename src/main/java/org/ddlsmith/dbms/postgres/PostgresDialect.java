@@ -398,6 +398,9 @@ public class PostgresDialect extends AbstractDialect {
         if (value instanceof Number) {
             return value.toString();
         }
+        if (value instanceof Object[] && type != null && type.getCategory() == DataType.Category.ARRAY) {
+            return renderArrayLiteral((Object[]) value, type);
+        }
         if (value instanceof List && type != null && type.getCategory() == DataType.Category.ARRAY) {
             DataType elementType = type.getElementType();
             StringBuilder sb = new StringBuilder("ARRAY[");

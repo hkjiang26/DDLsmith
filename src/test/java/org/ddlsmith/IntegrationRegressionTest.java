@@ -169,7 +169,8 @@ class IntegrationRegressionTest {
         lines.add("-- seed     : 1");
         lines.addAll(state.getStatements());
         lines.add("-- ============================ generated input ============================");
-        lines.add("-- graph schema : GraphSchema[...]");
+        lines.add("-- base graph schema : GraphSchema[...]");
+        lines.add("-- filling           : L0[k0:INTEGER(1.0) PRIMARY]");
         lines.add("-- schema       : tables=1 columns=1 pk=1");
         lines.add("");
         lines.add("DDLsmith failure: schema mismatch on database0: MISSING_TABLE at t");

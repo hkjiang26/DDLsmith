@@ -335,7 +335,7 @@ public class DuckDbDialect extends AbstractDialect {
      * Decides a constant that has no {@code case} above.
      *
      * <p>{@code FK_TARGET_MUST_EXIST} is matched by name because the compiled contract this module is
-     * built against ({@code target/contract-classes}) is only refreshed when the core is rebuilt: the
+     * built against ({@code target/core-api-classes}) is only refreshed when the core is rebuilt: the
      * constant already exists in {@code DDLFeature.java} but not yet in the artifact, and a
      * {@code case} label for it would not compile. Matching by name gives the same decision against
      * either version; once the artifact is current, the name test can be replaced by a plain
@@ -390,8 +390,9 @@ public class DuckDbDialect extends AbstractDialect {
      * live in DuckDB's default schema.
      *
      * <p>{@code @Override} is deliberately omitted: {@code Dialect.getEffectiveSchemaName} is newer
-     * than the compiled contract in {@code target/contract-classes}, which {@code compile-subset.ps1}
-     * puts on the classpath, so the annotation would fail to compile there. The signature matches, so
+     * than the compiled contract in {@code target/core-api-classes}, which
+     * {@code mvn -Pcore-api process-classes} produces and the self-check recipes put on the
+     * classpath, so the annotation would fail to compile there. The signature matches, so
      * the method still overrides the interface method (and is still dispatched to) as soon as the
      * artifact is refreshed.</p>
      */
@@ -498,6 +499,9 @@ public class DuckDbDialect extends AbstractDialect {
     public String renderLiteral(Object value, DataType type) {
         if (value == null) {
             return "NULL";
+        }
+        if (value instanceof Object[]) {
+            return renderArrayLiteral((Object[]) value, type);
         }
         if (value instanceof Boolean) {
             return ((Boolean) value) ? "TRUE" : "FALSE";

@@ -16,6 +16,7 @@ import org.ddlsmith.ermodel.EREntity;
 import org.ddlsmith.ermodel.ERParticipant;
 import org.ddlsmith.ermodel.ERRelationship;
 import org.ddlsmith.graph.GraphEdge;
+import org.ddlsmith.graph.GraphFilling;
 import org.ddlsmith.graph.GraphGenerationOptions;
 import org.ddlsmith.graph.GraphGenerator;
 import org.ddlsmith.graph.GraphLabel;
@@ -34,7 +35,7 @@ import org.ddlsmith.graph.GraphSchema;
  * invariants, for all six generators and a range of seeds. It prints the statistics it collected
  * plus which structural ER features were seen, so a failure is debuggable from the output alone.</p>
  *
- * <p>Usage: {@code java -cp "target\gen-classes;target\contract-classes;<deps>"
+ * <p>Usage: {@code java -cp "target\gen-classes;target\core-api-classes;<deps>"
  * org.ddlsmith.graph.gen.SelfCheck [seeds]}</p>
  */
 public final class SelfCheck {
@@ -70,8 +71,30 @@ public final class SelfCheck {
         public boolean sawCompositeKey;
         public boolean sawNestedComposite;
         public boolean sawTotalSpecialization;
+        public boolean sawAlternateKey;
+        public boolean sawExtraDomainType;
+        public boolean sawDeepHierarchy;
         /** Graphs whose node count exceeds the configured maximum, i.e. the enforcer added nodes. */
         public int graphsAboveMaxNodes;
+
+        /**
+         * How often each ER feature was produced, over every generated database. The booleans above say
+         * whether a feature is reachable at all; these counters say how often, which is what makes the
+         * effect of a generation change measurable.
+         */
+        public final Map<String, Integer> featureCounts = new LinkedHashMap<>();
+        /** How many attributes of each domain the fillings produced, by type name. */
+        public final Map<String, Integer> domainHistogram = new LinkedHashMap<>();
+        /** How many labels carry how many attributes, by attribute count. */
+        public final Map<Integer, Integer> labelAttributeCountHistogram = new LinkedHashMap<>();
+        /** How many relationship types a base graph has, by type count. */
+        public final Map<Integer, Integer> typeCountHistogram = new LinkedHashMap<>();
+        /** How many subtypes sit at which ISA depth, by depth (1 = a direct subtype of a root). */
+        public final Map<Integer, Integer> isaDepthHistogram = new LinkedHashMap<>();
+        /** How many databases used the lean, normal and wide filling profile. */
+        public int leanFillings;
+        public int normalFillings;
+        public int wideFillings;
 
         public String recursiveExample;
         public String weakExample;
@@ -83,6 +106,11 @@ public final class SelfCheck {
 
         public boolean isValid() {
             return failures.isEmpty();
+        }
+
+        /** Counts one occurrence of a named feature. */
+        public void count(String feature) {
+            featureCounts.merge(feature, 1, Integer::sum);
         }
     }
 
@@ -190,6 +218,8 @@ public final class SelfCheck {
                 Randomly.setSeed(seed);
                 GraphSchema schema = new RandomGraphSchemaGenerator().generate();
                 GraphModel graph = generator.generate(schema, options);
+                GraphFilling filling = new RandomGraphFiller().plan(schema);
+                GraphPropertyFiller.fill(graph, filling);
                 report.graphs++;
                 stats.graphs++;
                 stats.nodes += graph.getNodeCount();
@@ -217,14 +247,16 @@ public final class SelfCheck {
                 if (graph.getParallelEdgePairCount() > 0) {
                     report.sawParallelEdges = true;
                 }
-                checkGraph(report, name, name + " seed " + seed, schema, graph, options);
-                checkSchemaShape(report, name + " seed " + seed, schema);
+                checkGraph(report, name, name + " seed " + seed, schema, graph, filling, options);
+                checkBaseGraphShape(report, name + " seed " + seed, schema);
+                checkFillingShape(report, name + " seed " + seed, schema, filling);
+                recordFilling(report, filling);
                 if (!withDiagrams) {
                     continue;
                 }
                 ERDiagram diagram;
                 try {
-                    diagram = mapper.map(graph, schema);
+                    diagram = mapper.map(graph, schema, filling);
                 } catch (RuntimeException e) {
                     report.failures.add(name + " seed " + seed + ": mapping threw " + e);
                     continue;
@@ -233,7 +265,7 @@ public final class SelfCheck {
                 checkDiagram(report, name + " seed " + seed, schema, graph, diagram);
                 // the printers must never throw: they run in failure paths
                 ERDiagramPrinter.describe(diagram);
-                ERDiagramPrinter.describe(graph, schema);
+                ERDiagramPrinter.describe(graph, schema, filling);
                 ERDiagramPrinter.toMermaid(diagram);
             }
         }
@@ -271,14 +303,17 @@ public final class SelfCheck {
                     Randomly.setSeed(seed);
                     GraphSchema schema = new RandomGraphSchemaGenerator().generate();
                     GraphModel graph = generator.generate(schema, options);
+                    GraphFilling filling = new RandomGraphFiller().plan(schema);
+                    GraphPropertyFiller.fill(graph, filling);
                     report.graphs++;
                     if (graph.getNodeCount() > options.getMaxNodes()) {
                         // only the enforcer's last-resort repair can add nodes
                         report.graphsAboveMaxNodes++;
                     }
-                    checkGraph(report, name, name + "/case" + caseIndex + " seed " + seed, schema, graph, options);
+                    checkGraph(report, name, name + "/case" + caseIndex + " seed " + seed, schema, graph, filling,
+                            options);
                     try {
-                        ERDiagram diagram = mapper.map(graph, schema);
+                        ERDiagram diagram = mapper.map(graph, schema, filling);
                         report.diagrams++;
                         checkDiagram(report, name + "/case" + caseIndex + " seed " + seed, schema, graph, diagram);
                     } catch (RuntimeException e) {
@@ -291,10 +326,10 @@ public final class SelfCheck {
     }
 
     private static void checkGraph(Report report, String generatorName, String where, GraphSchema schema,
-            GraphModel graph, GraphGenerationOptions options) {
+            GraphModel graph, GraphFilling filling, GraphGenerationOptions options) {
         if (options.isEnforceCardinality() && !CardinalityEnforcer.isValid(graph, schema)) {
             report.failures.add(where + ": CardinalityEnforcer.isValid is false\n"
-                    + ERDiagramPrinter.describe(graph, schema));
+                    + ERDiagramPrinter.describe(graph, schema, filling));
         }
         if (graph.getNodeCount() < options.getMinNodes()) {
             report.failures.add(where + ": " + graph.getNodeCount() + " nodes < minNodes " + options.getMinNodes());
@@ -311,7 +346,7 @@ public final class SelfCheck {
                 report.failures.add(where + ": node " + i + " has label " + node.getLabelIndex());
                 continue;
             }
-            checkProperties(report, where, "node " + i, schema.getLabel(node.getLabelIndex()).getProperties(),
+            checkProperties(report, where, "node " + i, filling.attributesOfLabel(node.getLabelIndex()),
                     node.getProperties());
         }
         for (int i = 0; i < graph.getEdgeCount(); i++) {
@@ -336,7 +371,8 @@ public final class SelfCheck {
                         + graph.getNode(edge.getFromId()).getLabelIndex() + "->"
                         + graph.getNode(edge.getToId()).getLabelIndex() + " but " + type);
             }
-            checkProperties(report, where, "edge " + i, type.getProperties(), edge.getProperties());
+            checkProperties(report, where, "edge " + i,
+                    filling.attributesOfRelationshipType(edge.getRelationshipTypeIndex()), edge.getProperties());
         }
     }
 
@@ -390,8 +426,11 @@ public final class SelfCheck {
         case CHAR:
         case VARCHAR:
         case TEXT:
-        case JSON:
             return value instanceof String && ((String) value).length() <= 10;
+        case JSON:
+            // the JSON generator emits a small document such as {"v":42}, which is longer than the
+            // short strings the textual types are filled with
+            return value instanceof String && ((String) value).startsWith("{");
         case BOOLEAN:
             return value instanceof Boolean;
         case DATE:
@@ -463,34 +502,26 @@ public final class SelfCheck {
     /* ------------------------------------------------------------------ schema checks */
 
     /**
-     * Verifies the documented shape of {@link RandomGraphSchemaGenerator}: 4..8 labels named
-     * {@code L<i>}, 2..6 slots named {@code k<j>} per label with a presence probability from
-     * {1.0, 0.9, 0.7, 0.5}, 4..10 relationship types named {@code R<t>} with 0..3 slots, at least
-     * one recursive type, at least two types that are total on one side, and no isolated label.
+     * Verifies the documented shape of the base graph {@link RandomGraphSchemaGenerator} produces:
+     * 4..8 labels named {@code L<i>}, 4..10 relationship types named {@code R<t>}, at least one
+     * recursive type, at least two types that are total on one side, no isolated label - and no
+     * attributes at all, because a base graph is only nodes and edges.
      */
-    public static void checkSchemaShape(Report report, String where, GraphSchema schema) {
+    public static void checkBaseGraphShape(Report report, String where, GraphSchema schema) {
         int labelCount = schema.getLabelCount();
         if (labelCount < 4 || labelCount > 8) {
             report.failures.add(where + ": " + labelCount + " labels");
         }
-        Set<String> allKeys = new LinkedHashSet<>();
         for (GraphLabel label : schema.getLabels()) {
             if (!label.getName().equals("L" + label.getIndex())) {
                 report.failures.add(where + ": label " + label.getIndex() + " is named " + label.getName());
             }
-            int slots = label.getProperties().size();
-            if (slots < 2 || slots > 6) {
-                report.failures.add(where + ": label " + label.getName() + " has " + slots + " slots");
-            }
-            for (GraphProperty slot : label.getProperties()) {
-                checkSlot(report, where, label.getName(), slot);
-                allKeys.add(slot.getKey());
-            }
         }
         int typeCount = schema.getRelationshipTypeCount();
-        if (typeCount < 4 || typeCount > 10) {
+        if (typeCount < 4 || typeCount > RandomGraphSchemaGenerator.MAX_TOTAL_TYPES) {
             report.failures.add(where + ": " + typeCount + " relationship types");
         }
+        report.typeCountHistogram.merge(typeCount, 1, Integer::sum);
         boolean recursive = false;
         int totalTypes = 0;
         boolean[] covered = new boolean[labelCount];
@@ -512,14 +543,6 @@ public final class SelfCheck {
                     || type.getToParticipation() == org.ddlsmith.ermodel.Participation.TOTAL) {
                 totalTypes++;
             }
-            if (type.getProperties().size() > 3) {
-                report.failures.add(where + ": type " + type.getName() + " has "
-                        + type.getProperties().size() + " slots");
-            }
-            for (GraphProperty slot : type.getProperties()) {
-                checkSlot(report, where, type.getName(), slot);
-                allKeys.add(slot.getKey());
-            }
         }
         if (!recursive) {
             report.failures.add(where + ": no recursive relationship type");
@@ -532,11 +555,181 @@ public final class SelfCheck {
                 report.failures.add(where + ": label L" + label + " is isolated in the schema");
             }
         }
-        for (String key : allKeys) {
-            if (key.length() < 2 || key.charAt(0) != 'k') {
-                report.failures.add(where + ": slot key " + key + " does not follow the k<j> convention");
-                break;
+    }
+
+    /**
+     * Verifies the documented shape of a {@link RandomGraphFiller} filling: attribute keys follow the
+     * {@code k<j>} convention and are unique across the whole filling, every presence probability is
+     * one of {1.0, 0.9, 0.7, 0.5}, a key attribute has an indexable domain, every parent link of the
+     * inheritance plan really makes the child a strict superset of the parent, and the plan is acyclic
+     * and at most {@code MAX_ISA_LEVELS} levels deep.
+     */
+    public static void checkFillingShape(Report report, String where, GraphSchema schema, GraphFilling filling) {
+        Map<String, Integer> ownerOfKey = new LinkedHashMap<>();
+        for (int label = 0; label < schema.getLabelCount(); label++) {
+            Set<String> ownKeys = new LinkedHashSet<>();
+            for (GraphProperty slot : filling.attributesOfLabel(label)) {
+                checkSlot(report, where, "label L" + label, slot);
+                if (!ownKeys.add(slot.getKey())) {
+                    report.failures.add(where + ": label L" + label + " declares the attribute key "
+                            + slot.getKey() + " twice");
+                }
+                Integer other = ownerOfKey.putIfAbsent(slot.getKey(), label);
+                // the same key may only appear in two labels when one inherits from the other; anything
+                // else would make two unrelated entities claim the same logical attribute
+                if (other != null && other != label && !inherits(filling, label, other)
+                        && !inherits(filling, other, label)) {
+                    report.failures.add(where + ": the attribute key " + slot.getKey() + " belongs to L" + other
+                            + " and to the unrelated L" + label);
+                }
+                if (slot.getKeyRole() != GraphProperty.KeyRole.NONE && !isKeySafe(slot.getType())) {
+                    report.failures.add(where + ": key attribute " + slot.getKey() + " has the domain "
+                            + slot.getType().getName() + ", which no engine can index portably");
+                }
             }
+        }
+        for (int type = 0; type < schema.getRelationshipTypeCount(); type++) {
+            Set<String> ownKeys = new LinkedHashSet<>();
+            for (GraphProperty slot : filling.attributesOfRelationshipType(type)) {
+                checkSlot(report, where, "type R" + type, slot);
+                if (!ownKeys.add(slot.getKey())) {
+                    report.failures.add(where + ": type R" + type + " declares the attribute key "
+                            + slot.getKey() + " twice");
+                }
+                if (ownerOfKey.putIfAbsent(slot.getKey(), -1 - type) != null) {
+                    report.failures.add(where + ": the attribute key " + slot.getKey()
+                            + " is used by a label and by the relationship type R" + type);
+                }
+            }
+        }
+        for (int label = 0; label < schema.getLabelCount(); label++) {
+            List<Integer> parents = filling.parentsOf(label);
+            if (parents.size() > 2) {
+                report.failures.add(where + ": label L" + label + " has " + parents.size() + " supertypes");
+            }
+            for (int parent : parents) {
+                if (parent < 0 || parent >= schema.getLabelCount() || parent == label) {
+                    report.failures.add(where + ": label L" + label + " inherits from " + parent);
+                    continue;
+                }
+                if (!isStrictSuperset(filling, label, parent)) {
+                    report.failures.add(where + ": label L" + label + " inherits from L" + parent
+                            + " without being a strict superset of it, so no ISA link can be recognised");
+                }
+            }
+            if (isaDepth(filling, label, 0) > MAX_FILLING_ISA_LEVELS) {
+                report.failures.add(where + ": label L" + label + " is deeper than "
+                        + MAX_FILLING_ISA_LEVELS + " ISA levels");
+            }
+        }
+    }
+
+    /** The deepest ISA path the ER mapper still recognises; a filling must not plan more. */
+    private static final int MAX_FILLING_ISA_LEVELS = 3;
+
+    private static boolean isKeySafe(DataType type) {
+        if (type == null) {
+            return false;
+        }
+        switch (type.getCategory()) {
+        case SMALLINT:
+        case INTEGER:
+        case BIGINT:
+        case DECIMAL:
+        case REAL:
+        case DOUBLE:
+        case CHAR:
+        case VARCHAR:
+        case BOOLEAN:
+        case DATE:
+        case TIMESTAMP:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    private static boolean isStrictSuperset(GraphFilling filling, int subtype, int supertype) {        Set<String> subKeys = new LinkedHashSet<>();
+        for (GraphProperty slot : filling.attributesOfLabel(subtype)) {
+            subKeys.add(slot.getKey());
+        }
+        Set<String> superKeys = new LinkedHashSet<>();
+        for (GraphProperty slot : filling.attributesOfLabel(supertype)) {
+            superKeys.add(slot.getKey());
+        }
+        return subKeys.size() > superKeys.size() && subKeys.containsAll(superKeys);
+    }
+
+    /** @return true when {@code label} inherits from {@code candidate}, directly or through a chain */
+    private static boolean inherits(GraphFilling filling, int label, int candidate) {
+        for (int parent : filling.parentsOf(label)) {
+            if (parent == candidate || inherits(filling, parent, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int isaDepth(GraphFilling filling, int label, int guard) {
+        if (guard > MAX_FILLING_ISA_LEVELS + 1) {
+            return guard;
+        }
+        int deepest = 0;
+        for (int parent : filling.parentsOf(label)) {
+            deepest = Math.max(deepest, isaDepth(filling, parent, guard + 1));
+        }
+        return deepest + 1;
+    }
+
+    /** @return the number of ISA levels above {@code entity}, 1 for a root */
+    private static int isaDepth(ERDiagram diagram, EREntity entity) {
+        int deepest = 0;
+        for (String superName : entity.getSuperEntities()) {
+            EREntity supertype = diagram.getEntity(superName);
+            if (supertype != null) {
+                deepest = Math.max(deepest, isaDepth(diagram, supertype));
+            }
+        }
+        return deepest + 1;
+    }
+
+    /** Records the dimensions of a filling: profile width, domains and how many attributes it has. */
+    private static void recordFilling(Report report, GraphFilling filling) {
+        int labelAttributes = 0;
+        int labels = filling.getLabelCount();
+        for (int label = 0; label < labels; label++) {
+            int count = filling.attributesOfLabel(label).size();
+            labelAttributes += count;
+            report.labelAttributeCountHistogram.merge(count, 1, Integer::sum);
+            for (GraphProperty slot : filling.attributesOfLabel(label)) {
+                recordDomain(report, slot.getType());
+            }
+        }
+        for (int type = 0; type < 20; type++) {
+            for (GraphProperty slot : filling.attributesOfRelationshipType(type)) {
+                recordDomain(report, slot.getType());
+            }
+        }
+        double average = labels == 0 ? 0 : labelAttributes / (double) labels;
+        if (average <= 1.5) {
+            report.leanFillings++;
+        } else if (average <= 6.5) {
+            report.normalFillings++;
+        } else {
+            report.wideFillings++;
+        }
+    }
+
+    private static void recordDomain(Report report, DataType type) {
+        if (type == null) {
+            return;
+        }
+        // by category, so that two ENUMs with different value lists are one entry: the question the
+        // census answers is which domains the ER layer reaches, not which literals an enum carries
+        report.domainHistogram.merge(type.getCategory().name(), 1, Integer::sum);
+        if (!DataType.commonTypes().contains(type)) {
+            report.sawExtraDomainType = true;
+            report.count("attributes with an extra domain type");
         }
     }
 
@@ -561,6 +754,7 @@ public final class SelfCheck {
         for (EREntity entity : diagram.getEntities()) {
             if (entity.isAggregation()) {
                 report.sawAggregation = true;
+                report.count("aggregations");
                 if (report.aggregationExample == null) {
                     report.aggregationExample = where + " -> " + entity.getName() + " aggregates "
                             + entity.getAggregatedRelationship();
@@ -594,6 +788,7 @@ public final class SelfCheck {
             }
             if (entity.isWeak()) {
                 report.sawWeakEntity = true;
+                report.count("weak entities");
                 if (report.weakExample == null) {
                     report.weakExample = where + " -> " + entity.getName() + " owner=" + entity.getOwnerEntity()
                             + " via " + entity.getOwnerRelationship();
@@ -613,9 +808,11 @@ public final class SelfCheck {
             }
             if (entity.isSharedSubclass()) {
                 report.sawSharedSubclass = true;
+                report.count("shared subclasses");
             }
             if (entity.isCategory()) {
                 report.sawCategory = true;
+                report.count("categories");
                 if (report.categoryExample == null) {
                     report.categoryExample = where + " -> " + entity.getName() + " category-of "
                             + entity.getCategorySupers();
@@ -640,6 +837,12 @@ public final class SelfCheck {
             }
             if (entity.isGeneralizationSubtype()) {
                 report.sawIsaHierarchy = true;
+                report.count("subtype links");
+                int depth = isaDepth(diagram, entity);
+                report.isaDepthHistogram.merge(depth, 1, Integer::sum);
+                if (depth > 1) {
+                    report.sawDeepHierarchy = true;
+                }
                 for (String superName : entity.getSuperEntities()) {
                     if (!diagram.hasEntity(superName)) {
                         report.failures.add(where + ": subtype " + entity.getName() + " has unknown supertype "
@@ -669,16 +872,23 @@ public final class SelfCheck {
             }
             if (entity.getPrimaryKeyAttributes().size() > 1) {
                 report.sawCompositeKey = true;
+                report.count("composite keys");
+            }
+            if (!entity.getAlternateKeyAttributes().isEmpty()) {
+                report.sawAlternateKey = true;
+                report.count("alternate keys");
             }
             for (ERAttribute attribute : entity.getAttributes()) {
                 if (attribute.isMultivalued()) {
                     report.sawMultivaluedAttribute = true;
+                    report.count("multi-valued attributes");
                     if (report.multivaluedExample == null) {
                         report.multivaluedExample = where + " -> " + entity.getName() + "." + attribute.getName();
                     }
                 }
                 if (attribute.isDerived()) {
                     report.sawDerivedAttribute = true;
+                    report.count("derived attributes");
                     if (attribute.getDerivedExpression() == null) {
                         report.failures.add(where + ": derived attribute " + attribute.getName()
                                 + " has no expression");
@@ -686,6 +896,7 @@ public final class SelfCheck {
                 }
                 if (attribute.isComposite()) {
                     report.sawCompositeAttribute = true;
+                    report.count("composite attributes");
                     if (attribute.getComponents().size() < 2) {
                         report.failures.add(where + ": composite attribute " + attribute.getName()
                                 + " has fewer than two components");
@@ -693,6 +904,7 @@ public final class SelfCheck {
                     for (ERAttribute component : attribute.getComponents()) {
                         if (component.isComposite()) {
                             report.sawNestedComposite = true;
+                            report.count("nested composites");
                         }
                     }
                 }
@@ -724,6 +936,7 @@ public final class SelfCheck {
             }
             if (relationship.isNary()) {
                 report.sawTernaryRelationship = true;
+                report.count("ternary relationships");
                 if (report.ternaryExample == null) {
                     report.ternaryExample = where + " -> " + relationship;
                 }
@@ -991,7 +1204,21 @@ public final class SelfCheck {
                 .append(" sharedSubclass=").append(report.sawSharedSubclass)
                 .append(" totalSpecialization=").append(report.sawTotalSpecialization)
                 .append(" compositeKey=").append(report.sawCompositeKey)
-                .append(" nestedComposite=").append(report.sawNestedComposite).append('\n');
+                .append(" alternateKey=").append(report.sawAlternateKey)
+                .append(" nestedComposite=").append(report.sawNestedComposite)
+                .append(" deepHierarchy=").append(report.sawDeepHierarchy)
+                .append(" extraDomain=").append(report.sawExtraDomainType).append('\n');
+        // The filling counts are the measurement of how much one base graph can become: each database of
+        // a group draws its own filling, so these are the numbers that show the filling stage working.
+        sb.append("filling: lean=").append(report.leanFillings)
+                .append(" normal=").append(report.normalFillings)
+                .append(" wide=").append(report.wideFillings).append('\n');
+        sb.append("label attribute counts: ").append(describeHistogram(report.labelAttributeCountHistogram))
+                .append('\n');
+        sb.append("relationship type counts: ").append(describeHistogram(report.typeCountHistogram)).append('\n');
+        sb.append("ISA depths: ").append(describeHistogram(report.isaDepthHistogram)).append('\n');
+        sb.append("feature counts: ").append(report.featureCounts).append('\n');
+        sb.append("domains: ").append(describeHistogram(report.domainHistogram)).append('\n');
         sb.append("examples: recursive[").append(report.recursiveExample).append("] weak[")
                 .append(report.weakExample).append("] isa[").append(report.isaExample).append("] multivalued[")
                 .append(report.multivaluedExample).append("] ternary[").append(report.ternaryExample)
@@ -1005,5 +1232,23 @@ public final class SelfCheck {
             }
         }
         return sb.toString();
+    }
+
+    /** @return a histogram as {@code key=count} pairs, in key order (numerically for integer keys) */
+    private static String describeHistogram(Map<?, Integer> histogram) {
+        List<Map.Entry<?, Integer>> entries = new ArrayList<>(histogram.entrySet());
+        entries.sort((a, b) -> compareHistogramKeys(a.getKey(), b.getKey()));
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<?, Integer> entry : entries) {
+            parts.add(entry.getKey() + "=" + entry.getValue());
+        }
+        return String.join(" ", parts);
+    }
+
+    private static int compareHistogramKeys(Object first, Object second) {
+        if (first instanceof Integer && second instanceof Integer) {
+            return Integer.compare((Integer) first, (Integer) second);
+        }
+        return String.valueOf(first).compareTo(String.valueOf(second));
     }
 }

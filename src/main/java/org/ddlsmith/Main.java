@@ -64,12 +64,15 @@ public final class Main {
     private static final Map<String, AtomicLong> FAILURES_BY_KIND = new ConcurrentHashMap<>();
 
     /**
-     * The distinct ER-diagram and relational-schema profiles the run produced.
+     * The distinct fillings, ER-diagram and relational-schema profiles the run produced.
      *
      * <p>They exist to make {@code --databases-per-graph} visible: a group of K databases shares one
-     * graph, so the graph shape repeats by construction and the summary has to report how much of the
-     * input space was actually new rather than how many databases were tested.</p>
+     * base graph, so the graph shape repeats by construction and the summary has to report how much of
+     * the input space was actually new rather than how many databases were tested. The filling is the
+     * axis on which the databases of one group differ most - how many attributes a table has, of which
+     * domain, which of them are NOT NULL and which form the keys.</p>
      */
+    public static final java.util.Set<String> distinctFillings = ConcurrentHashMap.newKeySet();
     public static final java.util.Set<String> distinctErProfiles = ConcurrentHashMap.newKeySet();
     public static final java.util.Set<String> distinctSchemaProfiles = ConcurrentHashMap.newKeySet();
 
@@ -477,6 +480,7 @@ public final class Main {
         nrGeneratedGraphs.set(0);
         threadsShutdown.set(0);
         FAILURES_BY_KIND.clear();
+        distinctFillings.clear();
         distinctErProfiles.clear();
         distinctSchemaProfiles.clear();
         unavailableDatabases.set(0);
@@ -688,10 +692,12 @@ public final class Main {
         System.out.println(formatInteger(nrDatabases.get()) + " databases");
         System.out.println(formatInteger(nrSuccessfulActions.get()) + " successfully executed statements");
         System.out.println(formatInteger(nrQueries.get()) + " queries");
-        System.out.println(formatInteger(nrGeneratedGraphs.get()) + " generated graphs");
-        // With a shared graph the number of databases says nothing about how much of the input space was
-        // reached, so the distinct shapes are reported next to it: the first line counts ER diagrams, the
-        // second the relational schemas they were mapped to.
+        System.out.println(formatInteger(nrGeneratedGraphs.get()) + " generated base graphs");
+        // With a shared base graph the number of databases says nothing about how much of the input space
+        // was reached, so the distinct shapes are reported next to it: the first line counts the fillings
+        // (how many different attribute layouts one base graph was given), the second the ER diagrams and
+        // the third the relational schemas they were mapped to.
+        System.out.println(formatInteger(distinctFillings.size()) + " distinct fillings");
         System.out.println(formatInteger(distinctErProfiles.size()) + " distinct ER diagrams");
         System.out.println(formatInteger(distinctSchemaProfiles.size()) + " distinct relational schemas");
         System.out.println(formatInteger(nrFailures.get()) + " failures");

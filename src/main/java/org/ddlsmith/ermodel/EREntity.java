@@ -95,6 +95,21 @@ public class EREntity {
         return result;
     }
 
+    /**
+     * @return the attributes forming an alternate (candidate) key of this entity: they do not
+     *         identify the instance in place of the primary key, but the instances are unique on
+     *         them, so the relational mapping adds a UNIQUE constraint
+     */
+    public List<ERAttribute> getAlternateKeyAttributes() {
+        List<ERAttribute> result = new ArrayList<>();
+        for (ERAttribute attribute : attributes) {
+            if (attribute.isAlternateKey()) {
+                result.add(attribute);
+            }
+        }
+        return result;
+    }
+
     public List<ERAttribute> getPartialKeyAttributes() {
         List<ERAttribute> result = new ArrayList<>();
         for (ERAttribute attribute : attributes) {

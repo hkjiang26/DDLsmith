@@ -567,6 +567,10 @@ public class MySqlDialect extends AbstractDialect {
         if (value == null) {
             return "NULL";
         }
+        if (value instanceof Object[]) {
+            // MySQL has no array type, so a column of that type was adapted to text by the adapter
+            return renderArrayAsText((Object[]) value);
+        }
         if (value instanceof Boolean) {
             return ((Boolean) value) ? "TRUE" : "FALSE";
         }

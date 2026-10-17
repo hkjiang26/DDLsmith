@@ -81,6 +81,7 @@ public final class DDLOnly {
             System.out.println("-- slot     : " + slot + " of " + databasesPerGraph);
         }
         System.out.println("-- graph    : " + generated.graph);
+        System.out.println("-- filling  : " + (generated.filling == null ? "-" : generated.filling.describe()));
         System.out.println("-- ER       : " + generated.erDiagram.getStatistics());
         System.out.println("-- mapping  : " + generated.mappingOptions.describe());
         System.out.println("-- schema   : " + adapted.getStatistics());

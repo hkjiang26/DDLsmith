@@ -19,6 +19,7 @@ import org.ddlsmith.ermodel.ERParticipant;
 import org.ddlsmith.ermodel.ERRelationship;
 import org.ddlsmith.ermodel.Participation;
 import org.ddlsmith.graph.GraphEdge;
+import org.ddlsmith.graph.GraphFilling;
 import org.ddlsmith.graph.GraphLabel;
 import org.ddlsmith.graph.GraphModel;
 import org.ddlsmith.graph.GraphNode;
@@ -28,23 +29,33 @@ import org.ddlsmith.graph.GraphSchema;
 import org.ddlsmith.graph.GraphToERMapper;
 
 /**
- * Interprets a generated graph as an ER diagram.
+ * Interprets a generated base graph plus its filling as an ER diagram.
  *
- * <p>Entities and relationships come straight from the schema: one entity {@code E<i>} per label
- * {@code L<i>} (with one attribute {@code a<j>} per property slot {@code k<j>}), one relationship
- * {@code R<t>} per relationship type that actually has edges in the graph instance. A recursive
- * type yields a binary relationship whose two participants carry the roles
+ * <p>Entities and relationships come straight from the base graph: one entity {@code E<i>} per label
+ * {@code L<i>} (with one attribute {@code a<j>} per attribute slot {@code k<j>} the filling gave that
+ * label), one relationship {@code R<t>} per relationship type that actually has edges in the graph
+ * instance. A recursive type yields a binary relationship whose two participants carry the roles
  * {@code <entity>_src} and {@code <entity>_dst}, so the mapping stage sees an ordinary binary
  * relationship instead of an unary one.</p>
+ *
+ * <p>The attributes of an entity or relationship are not part of the base graph: they are drawn per
+ * database by the {@link RandomGraphFiller}, which decides how many there are, which domain each one
+ * has, whether it is mandatory and which of them form the primary and the alternate key. The mapper
+ * reads them from the {@link GraphFilling}; only the structural features below are derived from the
+ * graph itself.</p>
  *
  * <p>The structural features of the ER model are derived from the <em>instance</em>, not only from
  * the schema, and every heuristic below is deliberately conservative - it fires only when the graph
  * really shows the pattern:</p>
  *
  * <ul>
- *   <li><b>Composite natural keys.</b> A label with at least two mandatory slots sometimes gets two
- *       of them marked as the key together, which exercises multi-column keys all the way down the
- *       mapping (composite primary keys, composite foreign keys in join tables).</li>
+ *   <li><b>Keys.</b> The filling decides which mandatory attributes identify the entity: one or two
+ *       of them become the primary key (a composite natural key exercises multi-column keys all the
+ *       way down the mapping), and one or two further mandatory attributes may become an
+ *       <em>alternate</em> key, which the relational mapping emits as a {@code UNIQUE} constraint.
+ *       Only when the filling left a label without a primary key does the mapper fall back to the
+ *       historic rule - a random mandatory attribute, or the synthetic key {@code id} when there is
+ *       none.</li>
  *   <li><b>Weak entities.</b> A label becomes weak when all of the following hold: it has no
  *       mandatory property slot, so its key had to be synthesised; exactly one relationship type is
  *       incident to it; that type leaves the label ({@code from} side) towards another label and is
@@ -57,17 +68,18 @@ import org.ddlsmith.graph.GraphToERMapper;
  *       owner); a 1:N type whose instances happen to give every node exactly one outgoing edge
  *       qualifies as well.</li>
  *   <li><b>Generalization (ISA).</b> Label {@code A} becomes a subtype of label {@code B} when
- *       {@code A}'s property slot keys are a strict superset of {@code B}'s (the schema generator
- *       models inheritance by letting a label share the slots of an earlier one) and a relationship
- *       type {@code A -> B} exists with {@code ONE/ONE} cardinalities and TOTAL participation on
- *       the {@code A} side, with probability 0.5. A label that inherits slots from <em>two</em>
- *       parents can take part in two such links and becomes a <b>shared subclass</b> (multiple
- *       inheritance), provided the two supertypes are not already ISA-connected. Hierarchies are
- *       kept at most {@value #MAX_ISA_DEPTH} levels deep. Disjointness and completeness (total vs
- *       partial specialization) are drawn at random, and the discriminator is a random attribute of
- *       the supertype. The subtype then keeps only the attributes it <em>adds</em>: the copies it
- *       was built with are removed, because in the ER model a subtype inherits its supertype's
- *       attributes rather than re-declaring them (see {@link #removeInheritedAttributes}).</li>
+ *       {@code A}'s attribute slots are a strict superset of {@code B}'s - which is exactly how the
+ *       filling realizes a specialization: it copies the supertype's slots into the subtype and adds
+ *       at least one attribute of its own - and a relationship type {@code A -> B} exists with
+ *       {@code ONE/ONE} cardinalities and TOTAL participation on the {@code A} side, with probability
+ *       0.5. A label that inherited from <em>two</em> parents can take part in two such links and
+ *       becomes a <b>shared subclass</b> (multiple inheritance), provided the two supertypes are not
+ *       already ISA-connected. Hierarchies are kept at most {@value #MAX_ISA_DEPTH} levels deep.
+ *       Disjointness and completeness (total vs. partial specialization) are drawn at random, and the
+ *       discriminator is a random attribute of the supertype. The subtype then keeps only the
+ *       attributes it <em>adds</em>: the copies it was built with are removed, because in the ER
+ *       model a subtype inherits its supertype's attributes rather than re-declaring them (see
+ *       {@link #removeInheritedAttributes}).</li>
  *   <li><b>Union types (categories).</b> A label linked to two or more other labels by 1:1 types
  *       that are PARTIAL on its own side becomes a category over two of them: every instance
  *       belongs to at least one superclass. The links become category links - superclass membership
@@ -76,10 +88,10 @@ import org.ddlsmith.graph.GraphToERMapper;
  *       self-loops, with {@code toCardinality == MANY}, is turned into an attribute
  *       {@code mv_<R>} of the label with probability 0.5 instead of a relationship; with
  *       probability 0.35 the attribute is composite, its components taken from the type's first two
- *       property slots. The type of a single-valued attribute is the type of the last property slot
- *       of the relationship type (relationship properties are not side-specific in the graph
- *       schema), or {@code VARCHAR(20)} when the type has no slots; the attribute is optional,
- *       because a node without a self-loop of that type simply has no values for it.</li>
+ *       attribute slots. The type of a single-valued attribute is the type of the last attribute slot
+ *       of the relationship type (relationship attributes are not side-specific in the filling), or
+ *       {@code VARCHAR(20)} when the type has no slots; the attribute is optional, because a node
+ *       without a self-loop of that type simply has no values for it.</li>
  *   <li><b>Derived attributes.</b> With probability 0.15 an entity that owns at least two numeric
  *       attributes has its last non-key numeric attribute marked as derived, with the expression
  *       {@code "<first numeric attribute> + 1"}.</li>
@@ -129,8 +141,18 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
     private static final int MAX_ISA_DEPTH = 3;
     private static final DataType MULTIVALUED_FALLBACK_TYPE = DataType.varchar(20);
 
+    /**
+     * The filling of the graph currently being mapped. Every attribute of the diagram comes from it,
+     * which is why it is stored for the duration of one {@link #map} call - the mapper itself is
+     * stateless between calls and safe to share.
+     */
+    private GraphFilling filling;
+
     @Override
-    public ERDiagram map(GraphModel graph, GraphSchema schema) {
+    public ERDiagram map(GraphModel graph, GraphSchema schema, GraphFilling filling) {
+        this.filling = filling != null ? filling
+                : new GraphFilling(schema == null ? 0 : schema.getLabelCount(),
+                        schema == null ? 0 : schema.getRelationshipTypeCount());
         ERDiagram diagram = new ERDiagram().setName("er_" + graph.getGeneratorName());
         Map<Integer, EREntity> entities = new LinkedHashMap<>();
         Set<Integer> syntheticKeys = new LinkedHashSet<>();
@@ -158,10 +180,12 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
             // the entity stands for a label, i.e. a type, not for one particular graph node
             entity.setGraphNodeId(-1);
             List<ERAttribute> mandatory = new ArrayList<>();
-            for (GraphProperty slot : label.getProperties()) {
+            for (GraphProperty slot : filling.attributesOfLabel(label.getIndex())) {
                 ERAttribute attribute = new ERAttribute(attributeName(slot), slot.getType());
                 attribute.setOptional(!slot.isMandatory());
                 attribute.setGraphSlot(slot.getKey());
+                attribute.setPrimaryKey(slot.isPrimaryKey());
+                attribute.setAlternateKey(slot.isAlternateKey());
                 entity.addAttribute(attribute);
                 if (slot.isMandatory()) {
                     mandatory.add(attribute);
@@ -172,15 +196,19 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
                 key.setPrimaryKey(true);
                 entity.addAttribute(key);
                 syntheticKeys.add(label.getIndex());
-            } else if (mandatory.size() >= 2 && Rand.chance(COMPOSITE_KEY_PROBABILITY)) {
-                // a composite (multi-attribute) natural key: two mandatory attributes together
-                // identify the entity, the classic "the pair is unique, neither alone is"
-                List<ERAttribute> shuffled = new ArrayList<>(mandatory);
-                Randomly.shuffle(shuffled);
-                shuffled.get(0).setPrimaryKey(true);
-                shuffled.get(1).setPrimaryKey(true);
-            } else {
-                Randomly.fromList(mandatory).setPrimaryKey(true);
+            } else if (!entity.hasPrimaryKey()) {
+                // the filling left the key open - a hand-built filling, or a label whose mandatory
+                // attributes were all inherited - so the historic rule applies
+                if (mandatory.size() >= 2 && Rand.chance(COMPOSITE_KEY_PROBABILITY)) {
+                    // a composite (multi-attribute) natural key: two mandatory attributes together
+                    // identify the entity, the classic "the pair is unique, neither alone is"
+                    List<ERAttribute> shuffled = new ArrayList<>(mandatory);
+                    Randomly.shuffle(shuffled);
+                    shuffled.get(0).setPrimaryKey(true);
+                    shuffled.get(1).setPrimaryKey(true);
+                } else {
+                    Randomly.fromList(mandatory).setPrimaryKey(true);
+                }
             }
             diagram.addEntity(entity);
             entities.put(label.getIndex(), entity);
@@ -211,10 +239,11 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
             if (entity == null || !Rand.chance(MULTIVALUED_PROBABILITY)) {
                 continue;
             }
-            ERAttribute attribute = new ERAttribute("mv_" + type.getName(), multivaluedAttributeType(type));
+            ERAttribute attribute = new ERAttribute("mv_" + type.getName(),
+                    multivaluedAttributeType(type.getIndex()));
             attribute.setMultivalued(true);
             attribute.setOptional(true);
-            List<GraphProperty> slots = type.getProperties();
+            List<GraphProperty> slots = filling.attributesOfRelationshipType(type.getIndex());
             if (slots.size() >= 2 && Rand.chance(MULTIVALUED_COMPOSITE_PROBABILITY)) {
                 // a multi-valued composite attribute: each value is a tuple of the first two slots
                 attribute.setComposite(true);
@@ -241,8 +270,8 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
         return true;
     }
 
-    private DataType multivaluedAttributeType(GraphRelationshipType type) {
-        List<GraphProperty> slots = type.getProperties();
+    private DataType multivaluedAttributeType(int typeIndex) {
+        List<GraphProperty> slots = filling.attributesOfRelationshipType(typeIndex);
         if (slots.isEmpty()) {
             return MULTIVALUED_FALLBACK_TYPE;
         }
@@ -277,7 +306,7 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
                 relationship.addParticipant(new ERParticipant("E" + type.getToLabelIndex())
                         .setCardinality(type.getToCardinality()).setParticipation(type.getToParticipation()));
             }
-            for (GraphProperty slot : type.getProperties()) {
+            for (GraphProperty slot : filling.attributesOfRelationshipType(type.getIndex())) {
                 ERAttribute attribute = new ERAttribute(attributeName(slot), slot.getType());
                 attribute.setOptional(!slot.isMandatory());
                 attribute.setGraphSlot(slot.getKey());
@@ -556,7 +585,7 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
             if (relationship == null || relationship.isStructuralLink() || subtype == null || supertype == null) {
                 continue;
             }
-            if (!isStrictSuperset(schema.getLabel(subIndex), schema.getLabel(superIndex))) {
+            if (!isStrictSuperset(subIndex, superIndex)) {
                 continue;
             }
             if (subtype.isWeak() || supertype.isWeak() || subtype.isCategory() || supertype.isCategory()
@@ -586,7 +615,7 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
             subtype.addSuperEntity(supertype.getName());
             supertype.addSubEntity(subtype.getName());
             // the subtype now inherits the supertype's attributes; it must not keep its own copies
-            removeInheritedAttributes(subtype, schema.getLabel(superIndex));
+            removeInheritedAttributes(subtype, superIndex);
             if (firstSubtype) {
                 supertype.setDisjoint(Randomly.getBoolean());
                 supertype.setTotalSpecialization(Randomly.getBoolean());
@@ -601,8 +630,8 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
     /**
      * Removes the attributes a subtype inherited from its new supertype.
      *
-     * <p>The schema generator models inheritance by copying the parent's property slots into the
-     * child label, so the child entity is built with a copy of every inherited attribute. In the ER
+     * <p>The filling models inheritance by copying the supertype's attribute slots into the child
+     * label, so the child entity is built with a copy of every inherited attribute. In the ER
      * model a subtype <em>inherits</em> its supertype's attributes; it does not re-declare them.
      * Leaving the copies in place made the relational mapping materialize the same logical attribute
      * twice whenever a lattice is merged into one table: the single-table strategy emitted both
@@ -613,17 +642,14 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
      * the root and then each subtype, and {@code TABLE_PER_SUBCLASS_WITH_FK} copies only the parent's
      * key. A subtype therefore keeps exactly the attributes it adds of its own.</p>
      *
-     * <p>The removal is driven by the supertype's <em>graph</em> slots rather than by its current
+     * <p>The removal is driven by the supertype's <em>filled</em> slots rather than by its current
      * attribute list, so the result does not depend on the order in which the ISA links are
      * recognized: in a chain the middle entity loses its own inherited attributes later, and the
      * bottom entity must still lose them.</p>
      */
-    private void removeInheritedAttributes(EREntity subtype, GraphLabel supertype) {
-        if (supertype == null) {
-            return;
-        }
+    private void removeInheritedAttributes(EREntity subtype, int supertypeLabelIndex) {
         Set<String> inheritedSlots = new LinkedHashSet<>();
-        for (GraphProperty slot : supertype.getProperties()) {
+        for (GraphProperty slot : filling.attributesOfLabel(supertypeLabelIndex)) {
             inheritedSlots.add(slot.getKey());
         }
         // an attribute without a graph slot (a multi-valued attribute derived from a self-loop, or a
@@ -776,14 +802,14 @@ public class DefaultGraphToERMapper implements GraphToERMapper {
         }
     }
 
-    /** @return true if {@code subtype}'s slot keys contain all of {@code supertype}'s, plus some */
-    private boolean isStrictSuperset(GraphLabel subtype, GraphLabel supertype) {
+    /** @return true if {@code subtype}'s filled slots contain all of {@code supertype}'s, plus some */
+    private boolean isStrictSuperset(int subtypeLabelIndex, int supertypeLabelIndex) {
         Set<String> subKeys = new LinkedHashSet<>();
-        for (GraphProperty slot : subtype.getProperties()) {
+        for (GraphProperty slot : filling.attributesOfLabel(subtypeLabelIndex)) {
             subKeys.add(slot.getKey());
         }
         Set<String> superKeys = new LinkedHashSet<>();
-        for (GraphProperty slot : supertype.getProperties()) {
+        for (GraphProperty slot : filling.attributesOfLabel(supertypeLabelIndex)) {
             superKeys.add(slot.getKey());
         }
         return subKeys.size() > superKeys.size() && subKeys.containsAll(superKeys);

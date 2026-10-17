@@ -18,6 +18,12 @@ public class ERAttribute {
     private DataType type;
     /** True if this attribute is a candidate key of its entity. */
     private boolean primaryKey;
+    /**
+     * True if this attribute is part of an <em>alternate</em> candidate key of its entity: it is not
+     * the primary key, but the entity's instances are unique on it, so the relational mapping emits a
+     * UNIQUE constraint next to the primary key.
+     */
+    private boolean alternateKey;
     /** True if this attribute is the partial key (discriminator) of a weak entity. */
     private boolean partialKey;
     /** True for a multi-valued attribute: requires its own table in the relational mapping. */
@@ -65,6 +71,15 @@ public class ERAttribute {
 
     public ERAttribute setPrimaryKey(boolean primaryKey) {
         this.primaryKey = primaryKey;
+        return this;
+    }
+
+    public boolean isAlternateKey() {
+        return alternateKey;
+    }
+
+    public ERAttribute setAlternateKey(boolean alternateKey) {
+        this.alternateKey = alternateKey;
         return this;
     }
 
@@ -150,6 +165,9 @@ public class ERAttribute {
         StringBuilder sb = new StringBuilder(name).append(':').append(type.getName());
         if (primaryKey) {
             sb.append(" PK");
+        }
+        if (alternateKey) {
+            sb.append(" ALT-KEY");
         }
         if (partialKey) {
             sb.append(" PARTIAL-KEY");

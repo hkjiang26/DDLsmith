@@ -15,27 +15,27 @@ import java.util.UUID;
 import org.ddlsmith.Randomly;
 import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.graph.GraphEdge;
-import org.ddlsmith.graph.GraphLabel;
+import org.ddlsmith.graph.GraphFilling;
 import org.ddlsmith.graph.GraphModel;
 import org.ddlsmith.graph.GraphNode;
 import org.ddlsmith.graph.GraphProperty;
-import org.ddlsmith.graph.GraphRelationshipType;
-import org.ddlsmith.graph.GraphSchema;
 
 /**
- * Fills the property slots of a generated graph with values of the declared type.
+ * Fills the attribute slots of a filled base graph with values of the declared type.
  *
- * <p>For every node and every edge, each slot of its label (respectively relationship type) is
- * filled with probability {@code presenceProbability}. An <em>absent key means the property is
- * null</em>, so nothing is ever stored as an explicit {@code null} value; mandatory slots
- * ({@code presenceProbability == 1.0}) are always present, which is what the ER mapper relies on
- * when it decides whether an entity has a key of its own.</p>
+ * <p>The slots are not part of the base graph: they come from the {@link GraphFilling} the
+ * {@link RandomGraphFiller} drew for this database. For every node and every edge, each slot of its
+ * label (respectively relationship type) is filled with probability
+ * {@code presenceProbability}. An <em>absent key means the property is null</em>, so nothing is ever
+ * stored as an explicit {@code null} value; mandatory slots ({@code presenceProbability == 1.0}) are
+ * always present, which is what the ER mapper relies on when it decides whether an entity has a key
+ * of its own.</p>
  *
  * <p>Values are not drawn independently per node: every slot owns a small pool of ~12 distinct
  * values that is filled on first use and then sampled with {@link Randomly#fromList(List)}. Values
  * therefore repeat across the nodes and edges of a graph, which is what makes later constraint
  * testing interesting (grouping, joins, uniqueness checks all see collisions). Pools are created
- * per {@link #fill(GraphModel, GraphSchema)} call, so the same seed always produces the same
+ * per {@link #fill(GraphModel, GraphFilling)} call, so the same seed always produces the same
  * values.</p>
  *
  * <p>Java representation of the canonical types: SMALLINT is a {@link Short}, INTEGER an
@@ -45,7 +45,7 @@ import org.ddlsmith.graph.GraphSchema;
  * BLOB a {@code byte[]}, UUID a {@link UUID}, ENUM a {@link String} from the type's value list and
  * ARRAY an {@code Object[]} of element values.</p>
  *
- * <p>The methods are static: {@code GraphPropertyFiller.fill(graph, schema)} can be called without
+ * <p>The methods are static: {@code GraphPropertyFiller.fill(graph, filling)} can be called without
  * an instance.</p>
  */
 public final class GraphPropertyFiller {
@@ -67,28 +67,22 @@ public final class GraphPropertyFiller {
     private GraphPropertyFiller() {
     }
 
-    /** Fills every node and edge property of {@code graph} according to {@code schema}. */
-    public static void fill(GraphModel graph, GraphSchema schema) {
+    /** Fills every node and edge attribute of {@code graph} according to {@code filling}. */
+    public static void fill(GraphModel graph, GraphFilling filling) {
         Map<String, List<Object>> pools = new HashMap<>();
         for (GraphNode node : graph.getNodes()) {
             int labelIndex = node.getLabelIndex();
-            if (labelIndex < 0 || labelIndex >= schema.getLabelCount()) {
+            if (labelIndex < 0 || labelIndex >= filling.getLabelCount()) {
                 continue;
             }
-            GraphLabel label = schema.getLabel(labelIndex);
-            for (GraphProperty slot : label.getProperties()) {
+            for (GraphProperty slot : filling.attributesOfLabel(labelIndex)) {
                 if (isPresent(slot)) {
                     node.putProperty(slot.getKey(), valueFor(slot, pools));
                 }
             }
         }
         for (GraphEdge edge : graph.getEdges()) {
-            int typeIndex = edge.getRelationshipTypeIndex();
-            if (typeIndex < 0 || typeIndex >= schema.getRelationshipTypeCount()) {
-                continue;
-            }
-            GraphRelationshipType type = schema.getRelationshipType(typeIndex);
-            for (GraphProperty slot : type.getProperties()) {
+            for (GraphProperty slot : filling.attributesOfRelationshipType(edge.getRelationshipTypeIndex())) {
                 if (isPresent(slot)) {
                     edge.putProperty(slot.getKey(), valueFor(slot, pools));
                 }

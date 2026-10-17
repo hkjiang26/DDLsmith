@@ -16,9 +16,13 @@ import org.ddlsmith.graph.GraphSchema;
  *
  * <p>{@link #generate(GraphSchema, GraphGenerationOptions)} is a template method: it sets up the
  * shared {@link GraphBuildContext} (node count, labels, lookup tables), lets the concrete generator
- * build its structure, adds the self-loops, enforces the cardinality constraints and finally fills
- * the properties. Subclasses only implement {@link #build(GraphBuildContext)}, i.e. the structural
- * rule that distinguishes them.</p>
+ * build its structure, adds the self-loops and enforces the cardinality constraints. Subclasses only
+ * implement {@link #build(GraphBuildContext)}, i.e. the structural rule that distinguishes them.</p>
+ *
+ * <p>The result is a <em>base</em> graph: nodes and edges, no attributes. Filling it is a separate
+ * step that runs once per database ({@link RandomGraphFiller} plus {@link GraphPropertyFiller}), so
+ * that one base graph can be read as many different ER diagrams. The graph generators therefore
+ * never consume randomness for attributes.</p>
  */
 public abstract class AbstractGraphGenerator implements GraphGenerator {
 
@@ -42,7 +46,6 @@ public abstract class AbstractGraphGenerator implements GraphGenerator {
         if (options.isEnforceCardinality()) {
             CardinalityEnforcer.enforce(context.getGraph(), schema);
         }
-        GraphPropertyFiller.fill(context.getGraph(), schema);
         context.getGraph().setGeneratorName(name);
         context.getGraph().setTargetEdgeCount(context.getTargetEdgeCount());
         return context.getGraph();

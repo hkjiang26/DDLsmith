@@ -4,11 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The schema of a randomly generated graph: which node labels and relationship types exist, which
- * properties they carry, and which cardinality constraints the generated graph must satisfy.
+ * The schema of a randomly generated <em>base</em> graph: which node labels and relationship types
+ * exist, and which cardinality and participation constraints the generated graph must satisfy.
+ *
+ * <p>It deliberately says nothing about attributes. A base graph is only nodes and edges; the
+ * attributes every label and relationship type carries in a given database are decided afterwards,
+ * independently per database, by the {@link GraphFiller} (see {@link GraphFilling}). That is what
+ * makes one base graph the source of many different ER diagrams instead of exactly one.</p>
  *
  * <p>This plays the role that the Cypher schema plays in GDsmith: it is generated first, and both
- * the graph instance and the ER diagram are derived from it.</p>
+ * the graph instance and - through the filling - the ER diagram are derived from it.</p>
  */
 public class GraphSchema {
 

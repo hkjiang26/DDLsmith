@@ -144,7 +144,7 @@ public class ConstraintEnforcementOracle implements TestOracle {
                     "Table " + rejected.table.getName() + " could not be populated.\n"
                             + "The row below satisfies every NOT NULL and CHECK constraint of the table as "
                             + "evaluated by DDLsmith, yet the engine rejected it.\n"
-                            + "Row: " + rejected.row + "\n"
+                            + "Row: " + org.ddlsmith.graph.GraphValues.format(rejected.row) + "\n"
                             + "Observed: " + StatementRunner.describe(rejected.event) + "\n"
                             + "SQL: " + rejected.sql,
                     rejected.sql));

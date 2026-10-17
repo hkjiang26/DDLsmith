@@ -6,71 +6,70 @@ import java.util.List;
 import java.util.Map;
 
 import org.ddlsmith.Randomly;
-import org.ddlsmith.common.schema.DataType;
 import org.ddlsmith.ermodel.Cardinality;
 import org.ddlsmith.ermodel.Participation;
 import org.ddlsmith.graph.GraphLabel;
-import org.ddlsmith.graph.GraphProperty;
 import org.ddlsmith.graph.GraphRelationshipType;
 import org.ddlsmith.graph.GraphSchema;
 import org.ddlsmith.graph.GraphSchemaGenerator;
 
 /**
- * Randomly generates the schema of a graph: 4..8 node labels, 4..10 relationship types, and the
- * property slots, cardinalities and participation constraints of both.
+ * Randomly generates the schema of a <em>base</em> graph: 4..8 node labels, 4..10 relationship
+ * types, and the cardinalities and participation constraints of the latter.
  *
- * <p>Shape of the produced schemas:</p>
+ * <p>The schema carries no attributes. Attributes are what the {@link RandomGraphFiller} adds
+ * afterwards, per database, so that one base graph becomes many different ER diagrams. What the
+ * schema does decide is the <em>shape</em> the ER mapper can read features from:</p>
+ *
  * <ul>
- *   <li>Labels are named {@code L0..Ln}; each carries 2..6 property slots named {@code k<j>}, where
- *       {@code j} is a schema-wide counter. A slot's presence probability is drawn from
- *       {1.0, 0.9, 0.7, 0.5}, weighted towards 1.0 so that most entities end up with a key of their
- *       own.</li>
+ *   <li>Labels are named {@code L0..Ln}; every label is incident to at least one relationship type,
+ *       so no entity is isolated.</li>
  *   <li>Relationship types are named {@code R0..Rm} and connect a random from-label to a random
  *       to-label; about 20% of them are recursive (from == to) and at least one always is. The
  *       cardinalities are biased towards 1:N, then M:N, then 1:1. Participations favour PARTIAL but
  *       at least two types are total on one side, so total-participation mapping paths get
- *       exercised. Every type carries 0..3 property slots, continuing the same counter.</li>
- *   <li>Every label is incident to at least one relationship type, so no entity is isolated.</li>
+ *       exercised.</li>
+ *   <li><b>Subtype candidates.</b> With probability 0.4 a label is planned as the subtype candidate
+ *       of an earlier label, and with probability 0.45 it takes a <em>second</em> earlier label as
+ *       well (the image of a shared subclass, i.e. multiple inheritance). For each planned pair a
+ *       1:1 relationship type that is {@code TOTAL} on the child side is created with probability
+ *       0.6 (0.85 for a shared subclass) - that is exactly the shape the ER mapper reads as a
+ *       specialization link. The pair itself is only a <em>candidate</em>: whether it really becomes
+ *       an ISA link is decided per database by the filling, which makes the child's attribute set a
+ *       strict superset of the parent's. Because a parent may itself be a subtype candidate,
+ *       multi-level hierarchies are reachable.</li>
+ *   <li><b>Planned patterns.</b> Two further shapes are planned explicitly, because they need
+ *       several coordinated relationship types that random drawing almost never produces together:
+ *       with probability 0.35 a <em>triangle</em> of three pairwise-connected labels (which the ER
+ *       mapper reads as a ternary relationship or an aggregation), and with probability 0.35 a label
+ *       with two 1:1 links that are PARTIAL on its own side (which the ER mapper reads as a union
+ *       type, a category). Both count towards the planned type budget and are protected from the
+ *       retargeting passes.</li>
+ *   <li><b>Correlated cardinality and participation.</b> 1:1 relationship types are more likely to
+ *       be TOTAL on the from side than the base rate: that is the configuration the ER mapper needs
+ *       to recognise a weak entity (each dependent instance has exactly one owner).</li>
  * </ul>
  *
- * <p><b>Shared property slots.</b> With probability 0.4 a label does not get fresh slots but
- * <em>inherits</em> all slots of an earlier label and then adds one or more fresh ones, so that its
- * slot-key set is a strict superset of the other label's. This is what makes the ISA heuristic of
- * {@link DefaultGraphToERMapper} reachable at all: without shared keys the labels would own
- * disjoint key blocks and no label could ever be a superset of another. With probability 0.25 an
- * inheriting label takes a <em>second</em> parent as well, so it is a strict superset of two
- * earlier labels - the image of a shared subclass (multiple inheritance). A subtype link planned
- * this way is often accompanied by a 1:1 relationship type from the subtype to its parent with
- * TOTAL participation on the subtype side, which is the graph-level image of "every A is a B".</p>
- *
- * <p><b>Planned patterns.</b> Two further shapes are planned explicitly, because they need several
- * coordinated relationship types that random drawing almost never produces together: with
- * probability 0.35 a <em>triangle</em> of three pairwise-connected labels (which the ER mapper
- * reads as a ternary relationship or an aggregation), and with probability 0.35 a label with two
- * 1:1 links that are PARTIAL on its own side (which the ER mapper reads as a union type, a
- * category). Both count towards the planned type budget and are protected from the retargeting
- * passes.</p>
- *
- * <p><b>Correlated cardinality and participation.</b> 1:1 relationship types are more likely to be
- * TOTAL on the from side than the base rate: that is the configuration the ER mapper needs to
- * recognise a weak entity (each dependent instance has exactly one owner).</p>
+ * <p>The type count is drawn from {@value #MIN_TYPES}..{@value #MAX_TYPES}. The passes that have to
+ * hold afterwards - at least one recursive type, and no label without an incident type - may add a
+ * type each when no existing plan can be retargeted without destroying a planned shape, so a schema
+ * can carry up to {@value #MAX_TOTAL_TYPES} relationship types. The extra ones are not sloppiness:
+ * the alternative would be an isolated label (an entity no relationship touches) or a schema
+ * without a recursive type, both of which the ER feature coverage depends on.
  */
 public class RandomGraphSchemaGenerator implements GraphSchemaGenerator {
 
-    private static final double[] PRESENCE_VALUES = {1.0, 0.9, 0.7, 0.5};
-    private static final double[] PRESENCE_WEIGHTS = {0.45, 0.25, 0.20, 0.10};
-
     private static final int MIN_LABELS = 4;
     private static final int MAX_LABELS = 8;
-    private static final int MIN_SLOTS = 2;
-    private static final int MAX_SLOTS = 6;
     private static final int MIN_TYPES = 4;
     private static final int MAX_TYPES = 10;
-    private static final int MAX_TYPE_SLOTS = 3;
+    /** Upper bound on the relationship types after the coverage and recursion passes. */
+    public static final int MAX_TOTAL_TYPES = MAX_TYPES + MAX_LABELS;
 
     private static final double RECURSIVE_PROBABILITY = 0.2;
-    private static final double INHERIT_PROBABILITY = 0.4;
-    /** Probability that an inheriting label takes its slots from a second parent as well. */
+    /** Probability that a label is planned as the subtype candidate of an earlier label. */
+    private static final double SUBTYPE_CANDIDATE_PROBABILITY = 0.4;
+    /** Probability that a subtype candidate takes a second parent as well (shared subclass). */
     private static final double MULTI_PARENT_PROBABILITY = 0.45;
     private static final double SUBTYPE_LINK_PROBABILITY = 0.6;
     /** Probability of a subtype link when the child has two parents, i.e. is a shared subclass. */
@@ -87,102 +86,48 @@ public class RandomGraphSchemaGenerator implements GraphSchemaGenerator {
     public GraphSchema generate() {
         GraphSchema schema = new GraphSchema();
         int labelCount = Randomly.getInteger(MIN_LABELS, MAX_LABELS + 1);
-        int[] slotCounter = {0};
-        Map<Integer, List<Integer>> parents = new LinkedHashMap<>();
-        createLabels(schema, labelCount, slotCounter, parents);
-        createRelationshipTypes(schema, labelCount, slotCounter, parents);
+        Map<Integer, List<Integer>> subtypeCandidates = new LinkedHashMap<>();
+        createLabels(schema, labelCount, subtypeCandidates);
+        createRelationshipTypes(schema, labelCount, subtypeCandidates);
         return schema;
     }
 
     /* ------------------------------------------------------------------ labels */
 
-    private void createLabels(GraphSchema schema, int labelCount, int[] slotCounter,
-            Map<Integer, List<Integer>> parents) {
-        List<Integer> roots = new ArrayList<>();
+    private void createLabels(GraphSchema schema, int labelCount, Map<Integer, List<Integer>> subtypeCandidates) {
         for (int i = 0; i < labelCount; i++) {
-            GraphLabel label = new GraphLabel(i, "L" + i);
-            List<GraphLabel> inheritable = new ArrayList<>();
-            for (int root : roots) {
-                GraphLabel candidate = schema.getLabel(root);
-                // the child must be able to add at least one fresh slot and still stay within
-                // MAX_SLOTS, otherwise its key set could not be a strict superset
-                if (candidate.getProperties().size() < MAX_SLOTS) {
-                    inheritable.add(candidate);
-                }
+            schema.addLabel(new GraphLabel(i, "L" + i));
+            if (i == 0 || !Rand.chance(SUBTYPE_CANDIDATE_PROBABILITY)) {
+                continue;
             }
-            if (!inheritable.isEmpty() && Rand.chance(INHERIT_PROBABILITY)) {
-                List<GraphLabel> chosenParents = new ArrayList<>();
-                chosenParents.add(Randomly.fromList(inheritable));
-                // a second parent makes the label a strict superset of two earlier labels, which
-                // is what lets the ER mapper recognise a shared subclass (multiple inheritance)
-                List<GraphLabel> secondCandidates = new ArrayList<>();
-                for (GraphLabel candidate : inheritable) {
-                    if (candidate != chosenParents.get(0) && chosenParents.get(0).getProperties().size()
-                            + candidate.getProperties().size() + 1 <= MAX_SLOTS) {
-                        secondCandidates.add(candidate);
-                    }
+            List<Integer> parents = new ArrayList<>();
+            parents.add(Randomly.getInteger(0, i));
+            // a second parent makes the label a candidate shared subclass (multiple inheritance);
+            // both parents are earlier labels, so the candidate links can never form a cycle
+            if (i >= 2 && Rand.chance(MULTI_PARENT_PROBABILITY)) {
+                int second = Randomly.getInteger(0, i);
+                while (second == parents.get(0)) {
+                    second = (second + 1) % i;
                 }
-                if (!secondCandidates.isEmpty() && Rand.chance(MULTI_PARENT_PROBABILITY)) {
-                    chosenParents.add(Randomly.fromList(secondCandidates));
-                }
-                List<Integer> parentIndexes = new ArrayList<>();
-                for (GraphLabel parent : chosenParents) {
-                    for (GraphProperty slot : parent.getProperties()) {
-                        label.addProperty(new GraphProperty(slot.getKey(), slot.getType(),
-                                slot.getPresenceProbability()));
-                    }
-                    parentIndexes.add(parent.getIndex());
-                }
-                int extra = Randomly.getInteger(1, MAX_SLOTS - label.getProperties().size() + 1);
-                for (int k = 0; k < extra; k++) {
-                    label.addProperty(freshSlot(slotCounter));
-                }
-                parents.put(i, parentIndexes);
-            } else {
-                int slots = Randomly.getInteger(MIN_SLOTS, MAX_SLOTS + 1);
-                for (int k = 0; k < slots; k++) {
-                    label.addProperty(freshSlot(slotCounter));
-                }
-                roots.add(i);
+                parents.add(second);
             }
-            schema.addLabel(label);
+            subtypeCandidates.put(i, parents);
         }
-    }
-
-    private GraphProperty freshSlot(int[] slotCounter) {
-        return new GraphProperty("k" + slotCounter[0]++, randomType(), randomPresence());
-    }
-
-    private DataType randomType() {
-        return Randomly.fromList(DataType.commonTypes());
-    }
-
-    private double randomPresence() {
-        double roll = Rand.uniform();
-        double cumulative = 0;
-        for (int i = 0; i < PRESENCE_VALUES.length; i++) {
-            cumulative += PRESENCE_WEIGHTS[i];
-            if (roll < cumulative) {
-                return PRESENCE_VALUES[i];
-            }
-        }
-        return PRESENCE_VALUES[PRESENCE_VALUES.length - 1];
     }
 
     /* ------------------------------------------------------------------ relationship types */
 
-    private void createRelationshipTypes(GraphSchema schema, int labelCount, int[] slotCounter,
-            Map<Integer, List<Integer>> parents) {
+    private void createRelationshipTypes(GraphSchema schema, int labelCount, Map<Integer, List<Integer>> subtypeCandidates) {
         List<TypePlan> plans = new ArrayList<>();
         int desired = Randomly.getInteger(MIN_TYPES, MAX_TYPES + 1);
 
-        // 1. the subtype links of the inherited labels: the graph image of an ISA hierarchy. A
-        //    label with two parents gets two links, which is the image of a shared subclass.
-        List<Integer> children = new ArrayList<>(parents.keySet());
+        // 1. the candidate subtype links: the graph image of an ISA hierarchy. A label with two
+        //    parents gets two links, which is the image of a shared subclass.
+        List<Integer> children = new ArrayList<>(subtypeCandidates.keySet());
         Randomly.shuffle(children);
         for (int child : children) {
-            boolean sharedSubclass = parents.get(child).size() > 1;
-            for (int parent : parents.get(child)) {
+            boolean sharedSubclass = subtypeCandidates.get(child).size() > 1;
+            for (int parent : subtypeCandidates.get(child)) {
                 double probability = sharedSubclass ? SHARED_SUBCLASS_LINK_PROBABILITY : SUBTYPE_LINK_PROBABILITY;
                 if (plans.size() >= desired || !Rand.chance(probability)) {
                     continue;
@@ -270,10 +215,6 @@ public class RandomGraphSchemaGenerator implements GraphSchemaGenerator {
             type.setToCardinality(plan.toCardinality);
             type.setFromParticipation(plan.fromParticipation);
             type.setToParticipation(plan.toParticipation);
-            int slots = Randomly.getInteger(0, MAX_TYPE_SLOTS + 1);
-            for (int k = 0; k < slots; k++) {
-                type.addProperty(freshSlot(slotCounter));
-            }
             schema.addRelationshipType(type);
         }
     }
@@ -472,7 +413,7 @@ public class RandomGraphSchemaGenerator implements GraphSchemaGenerator {
         private Cardinality toCardinality = Cardinality.MANY;
         private Participation fromParticipation = Participation.PARTIAL;
         private Participation toParticipation = Participation.PARTIAL;
-        /** True for the link that mirrors an inherited label (see the class comment). */
+        /** True for a planned subtype candidate link (see the class comment). */
         private boolean subtypeLink;
         /** True if the plan was drawn as a recursive (from == to) relationship type. */
         private boolean recursive;

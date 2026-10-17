@@ -138,6 +138,7 @@ public class StandardERToRelationalMapper implements ERToRelationalMapper {
             mergeOneToOneEntities();
             mapRelationships();
             mapMultivaluedAttributes();
+            emitAlternateKeys();
             generateChecksUniquesAndIndexes();
             generateViews();
             generateSequences();
@@ -1643,6 +1644,56 @@ public class StandardERToRelationalMapper implements ERToRelationalMapper {
     }
 
     /* ------------------------------------------------------------------ constraints */
+
+    /**
+     * Emits the {@code UNIQUE} constraint of every alternate (candidate) key the ER diagram declares.
+     *
+     * <p>A strong entity often has more than one key: the filling marks one of them as the primary
+     * key and, with probability 0.25, one or two further mandatory attributes as an alternate key -
+     * "the entity is identified by {@code code} and unique on {@code name}". Mapping the alternate
+     * key to a primary key would be wrong (a composite primary key is a strictly stronger claim), so
+     * it becomes a unique constraint next to the primary key, which is the classic mapping and a
+     * useful oracle input in its own right.</p>
+     *
+     * <p>This runs after every entity has a table and before the random check/unique/index pass, so
+     * the random pass sees the alternate key as a key and does not put a second unique constraint on
+     * the same column.</p>
+     */
+    private void emitAlternateKeys() {
+        Set<String> emitted = new LinkedHashSet<>();
+        for (EREntity entity : diagram.getEntities()) {
+            List<ERAttribute> alternate = entity.getAlternateKeyAttributes();
+            if (alternate.isEmpty()) {
+                continue;
+            }
+            EntityInfo info = entityInfos.get(entity.getName());
+            if (info == null || info.table == null) {
+                note("the alternate key of " + entity.getName() + " is dropped: the entity has no table");
+                continue;
+            }
+            List<String> columns = columnsOf(entity.getName(), alternate, info.table);
+            if (columns.isEmpty()) {
+                note("the alternate key of " + entity.getName() + " is dropped: none of its attributes "
+                        + alternate + " reached the table " + info.table.getName());
+                continue;
+            }
+            if (info.table.getPrimaryKey() != null
+                    && sameColumns(info.table.getPrimaryKey().getColumns(), columns)) {
+                note("the alternate key of " + entity.getName() + " is the primary key of "
+                        + info.table.getName() + "; no second constraint is added");
+                continue;
+            }
+            String signature = info.table.getName() + "(" + String.join(",", columns) + ")";
+            if (!emitted.add(signature)) {
+                note("the alternate key of " + entity.getName() + " repeats a unique constraint of "
+                        + info.table.getName() + "; it is not added twice");
+                continue;
+            }
+            addUnique(info.table, columns);
+            note("alternate key of " + entity.getName() + " -> UNIQUE(" + columns + ") on "
+                    + info.table.getName());
+        }
+    }
 
     private void generateChecksUniquesAndIndexes() {
         for (Table table : new ArrayList<>(schema.getTables())) {

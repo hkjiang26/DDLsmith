@@ -29,6 +29,9 @@ public abstract class GlobalState<O extends DBMSSpecificOptions<?>, C extends DD
     /** The graph that was randomly generated and is interpreted as an ER diagram. */
     private GraphModel currentGraph;
 
+    /** The attributes this database gave the base graph (see {@link org.ddlsmith.graph.GraphFilling}). */
+    private org.ddlsmith.graph.GraphFilling currentFilling;
+
     /** The ER diagram extracted from {@link #currentGraph}. */
     private ERDiagram currentERDiagram;
 
@@ -132,6 +135,14 @@ public abstract class GlobalState<O extends DBMSSpecificOptions<?>, C extends DD
 
     public void setCurrentGraph(GraphModel currentGraph) {
         this.currentGraph = currentGraph;
+    }
+
+    public org.ddlsmith.graph.GraphFilling getCurrentFilling() {
+        return currentFilling;
+    }
+
+    public void setCurrentFilling(org.ddlsmith.graph.GraphFilling currentFilling) {
+        this.currentFilling = currentFilling;
     }
 
     public ERDiagram getCurrentERDiagram() {

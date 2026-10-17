@@ -743,20 +743,6 @@ public final class ConformancePlanner {
         return matcher.matches() ? Integer.parseInt(matcher.group(1)) : -1;
     }
 
-    /** @return the entity mapped to a table, or null when the table stands for several or none */
-    private String entityOfTable(String tableName) {
-        String found = null;
-        for (Map.Entry<String, String> entry : entityTables.entrySet()) {
-            if (normalize(entry.getValue()).equals(normalize(tableName))) {
-                if (found != null && !found.equals(entry.getKey())) {
-                    return null;
-                }
-                found = entry.getKey();
-            }
-        }
-        return found;
-    }
-
     /* ================================================================== node rows */
 
     private void planNodeRows() {
@@ -1070,6 +1056,25 @@ public final class ConformancePlanner {
                     .plusSeconds(seed % 1_000_000_000L));
         case BOOLEAN:
             return seed % 2 == 0;
+        case UUID:
+            // a UUID column is a 128-bit value (DuckDB types it as INT128), so the textual fallback
+            // below made the engine refuse the row with "Could not convert string 'n2_0' to INT128"
+            return new java.util.UUID(seed, attempt).toString();
+        case JSON:
+            return "{\"k\": " + seed + "}";
+        case ENUM: {
+            List<String> values = type.getEnumValues();
+            return values == null || values.isEmpty() ? "n" + nodeId
+                    : values.get((int) Math.floorMod(seed, values.size()));
+        }
+        case ARRAY: {
+            // the element has to fit the element type as well: an array of TIMESTAMP holds
+            // timestamps, and a bare number would be rendered as TIMESTAMP '7' and refused
+            DataType element = type.getElementType() == null ? DataType.integer() : type.getElementType();
+            return new Object[] { keyValue(new Column(column.getName() + "_element", element), nodeId, attempt) };
+        }
+        case BLOB:
+            return new byte[] { (byte) seed, (byte) (seed >> 8) };
         default:
             return fit("n" + nodeId + "_" + attempt, type);
         }
@@ -1331,15 +1336,6 @@ public final class ConformancePlanner {
             plan.note(missingRow + " of " + edges.size() + " edge(s) of " + relationship.getName() + " reference a node"
                     + " whose row was not materialized; they are not materialized");
         }
-    }
-
-    private static String roleSuffix(ERParticipant participant) {
-        String role = participant.getRoleName();
-        if (role == null) {
-            return null;
-        }
-        int underscore = role.lastIndexOf('_');
-        return underscore < 0 ? null : role.substring(underscore);
     }
 
     private boolean isHolderRow(PlannedRow row, Table holder) {
@@ -1997,21 +1993,37 @@ public final class ConformancePlanner {
      *
      * <p>Package-private because {@link ConformancePopulator} asks the engine about the same keys when a
      * row it planned is refused as a duplicate.</p>
+     *
+     * <p>One column list is returned once, however many constraints enforce it. A table whose primary
+     * key is also covered by a unique index - which the mapper's random index pass produces, and which
+     * an alternate key of exactly the key columns would produce as well - otherwise yields the same key
+     * twice; the duplicate-key check then compares the row with <em>itself</em> under the same key and
+     * drops it, so a single redundant constraint emptied a whole table. The column order is not part of
+     * the identity of such a constraint either: {@code (a, b)} and {@code (b, a)} forbid the same rows.</p>
      */
     static List<List<String>> keySets(Table table) {
         List<List<String>> keySets = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
         if (table.getPrimaryKey() != null && !table.getPrimaryKey().getColumns().isEmpty()) {
-            keySets.add(table.getPrimaryKey().getColumns());
+            addKeySet(keySets, seen, table.getPrimaryKey().getColumns());
         }
         for (UniqueConstraint unique : table.getUniqueConstraints()) {
-            keySets.add(unique.getColumns());
+            addKeySet(keySets, seen, unique.getColumns());
         }
         for (Index index : table.getIndexes()) {
             if (index.isUnique() && !index.isExpressionIndex() && !index.getColumns().isEmpty()) {
-                keySets.add(index.getColumns());
+                addKeySet(keySets, seen, index.getColumns());
             }
         }
         return keySets;
+    }
+
+    private static void addKeySet(List<List<String>> keySets, Set<String> seen, List<String> columns) {
+        List<String> sorted = new ArrayList<>(columns);
+        java.util.Collections.sort(sorted);
+        if (seen.add(String.join("\u0000", sorted))) {
+            keySets.add(columns);
+        }
     }
 
     /**

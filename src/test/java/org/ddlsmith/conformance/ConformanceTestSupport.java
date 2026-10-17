@@ -20,6 +20,8 @@ import org.ddlsmith.graph.GraphModel;
 import org.ddlsmith.graph.GraphSchema;
 import org.ddlsmith.graph.gen.DefaultGraphToERMapper;
 import org.ddlsmith.graph.gen.GraphGenerators;
+import org.ddlsmith.graph.gen.GraphPropertyFiller;
+import org.ddlsmith.graph.gen.RandomGraphFiller;
 import org.ddlsmith.graph.gen.RandomGraphSchemaGenerator;
 import org.ddlsmith.introspection.SchemaIntrospector;
 import org.ddlsmith.mapping.MappingOptions;
@@ -46,9 +48,10 @@ final class ConformanceTestSupport {
     private ConformanceTestSupport() {
     }
 
-    /** One generated input: the graph, its ER reading and the adapted schema. */
+    /** One generated input: the base graph, its filling, its ER reading and the adapted schema. */
     static final class Input {
         GraphModel graph;
+        org.ddlsmith.graph.GraphFilling filling;
         ERDiagram erDiagram;
         RelationalSchema mapped;
         RelationalSchema adapted;
@@ -89,9 +92,13 @@ final class ConformanceTestSupport {
         GraphModel graph = GraphGenerators.random().generate(graphSchema, new GraphGenerationOptions()
                 .setMinNodes(new MainOptions().getMinNodeNum())
                 .setMaxNodes(new MainOptions().getMaxNodeNum()));
+        // the filling is drawn from the slot stream, exactly as Pipeline.generate does it: the base
+        // graph is shared, the attributes (and with them the diagram) belong to this slot
         Randomly.setSeed(graphSeed * 1_000_000L + slot);
         input.graph = graph;
-        input.erDiagram = new DefaultGraphToERMapper().map(graph, graphSchema);
+        input.filling = new RandomGraphFiller().plan(graphSchema);
+        GraphPropertyFiller.fill(graph, input.filling);
+        input.erDiagram = new DefaultGraphToERMapper().map(graph, graphSchema, input.filling);
         input.mappingOptions = MappingOptions.random();
         input.trace = new MappingTrace();
         input.mapped = new StandardERToRelationalMapper().map(input.erDiagram, input.mappingOptions, SCHEMA_NAME,

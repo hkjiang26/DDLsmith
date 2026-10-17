@@ -680,8 +680,19 @@ public final class EngineTraits {
             switch (type.getCategory()) {
             case TEXT:
             case BLOB:
-            case JSON:
+                return false;
+            default:
+                // measured with a probe on H2 2.3.232: CREATE INDEX and UNIQUE are accepted on an
+                // ARRAY column and on a JSON column, and refused on a BLOB (and on a CLOB, which is
+                // what TEXT is rendered as)
+                return true;
+            }
+        case "duckdb":
+            switch (type.getCategory()) {
             case ARRAY:
+                // measured with a probe on DuckDB 1.3.0: an index, a UNIQUE constraint and a primary
+                // key over an ARRAY column are all refused with
+                // "Invalid type Error: Invalid Type [DATE[]]: Invalid type for index key"
                 return false;
             default:
                 return true;

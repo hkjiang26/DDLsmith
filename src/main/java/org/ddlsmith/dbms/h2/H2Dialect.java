@@ -384,6 +384,9 @@ public class H2Dialect extends AbstractDialect {
         if (value == null) {
             return "NULL";
         }
+        if (value instanceof Object[]) {
+            return renderArrayLiteral((Object[]) value, type);
+        }
         if (value instanceof byte[]) {
             return renderBinaryLiteral((byte[]) value);
         }

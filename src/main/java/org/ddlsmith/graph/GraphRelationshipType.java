@@ -1,13 +1,10 @@
 package org.ddlsmith.graph;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.ddlsmith.ermodel.Cardinality;
 import org.ddlsmith.ermodel.Participation;
 
 /**
- * A relationship type of the graph schema, i.e. the "type" of a graph edge.
+ * A relationship type of the base graph, i.e. the "type" of a graph edge.
  *
  * <p>Cardinalities are stated from the perspective of the classic (min,max) ER notation:</p>
  * <ul>
@@ -23,6 +20,12 @@ import org.ddlsmith.ermodel.Participation;
  *
  * <p>The generator enforces these constraints structurally while it builds the graph, so that the
  * resulting graph really is a valid instance of the ER diagram.</p>
+ *
+ * <p>A relationship type carries no attributes: they are decided per database by the
+ * {@link GraphFilling}. What the base graph provides is the shape the ER mapper reads - a
+ * {@code ONE/ONE} type that is {@code TOTAL} on the from side is what a specialization link looks
+ * like, an M:N type is what a join table or an aggregated relationship looks like, and a recursive
+ * type whose edges are all self-loops is what a multi-valued attribute looks like.</p>
  */
 public class GraphRelationshipType {
 
@@ -34,7 +37,6 @@ public class GraphRelationshipType {
     private Cardinality toCardinality = Cardinality.MANY;
     private Participation fromParticipation = Participation.PARTIAL;
     private Participation toParticipation = Participation.PARTIAL;
-    private final List<GraphProperty> properties = new ArrayList<>();
 
     public GraphRelationshipType(int index, String name, int fromLabelIndex, int toLabelIndex) {
         this.index = index;
@@ -92,15 +94,6 @@ public class GraphRelationshipType {
 
     public GraphRelationshipType setToParticipation(Participation toParticipation) {
         this.toParticipation = toParticipation;
-        return this;
-    }
-
-    public List<GraphProperty> getProperties() {
-        return properties;
-    }
-
-    public GraphRelationshipType addProperty(GraphProperty property) {
-        properties.add(property);
         return this;
     }
 

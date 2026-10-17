@@ -720,13 +720,27 @@ public class RowGenerator {
         case INTERVAL:
             return "1 day";
         case ARRAY:
-            return "{}";
+            // a real array value, not a literal: how an array is written depends on the engine
+            // (ARRAY[…] on H2, DuckDB and PostgreSQL, ordinary text on the engines whose adapter
+            // rewrites the type), so the dialect renders it, not the generator
+            return arrayValue(type);
         case ENUM:
             List<String> values = type.getEnumValues();
             return values == null || values.isEmpty() ? "x" : Randomly.fromList(values);
         default:
             return "x";
         }
+    }
+
+    /** @return a small array of element values for an ARRAY column */
+    private Object[] arrayValue(DataType arrayType) {
+        DataType element = arrayType.getElementType() == null ? DataType.integer() : arrayType.getElementType();
+        int length = 1 + Randomly.getInteger(0, 3);
+        Object[] values = new Object[length];
+        for (int i = 0; i < length; i++) {
+            values[i] = valueFor(new Column("element", element), false);
+        }
+        return values;
     }
 
     private Object uniqueValue(DataType type) {
@@ -750,6 +764,25 @@ public class RowGenerator {
             return java.sql.Timestamp.valueOf(java.time.LocalDateTime.of(2000, 1, 1, 0, 0).plusSeconds(value));
         case UUID:
             return java.util.UUID.randomUUID().toString();
+        case JSON:
+            // a distinct document per row: the alternative ("u5") is not JSON at all, and DuckDB
+            // refuses the whole row with "Malformed JSON at byte 0 of input"
+            return "{\"k\": " + value + "}";
+        case ENUM: {
+            // a member of the enum, never an arbitrary string: "u5" is not a permitted value, and H2
+            // rejects the row with "Value not permitted for column (...)". Uniqueness cannot be
+            // guaranteed beyond the number of members, and a repeated member is a uniqueness
+            // violation — which the oracles already treat as the row generator's own limit rather
+            // than as an engine defect.
+            List<String> enumValues = type.getEnumValues();
+            return enumValues == null || enumValues.isEmpty() ? "x" : Randomly.fromList(enumValues);
+        }
+        case ARRAY:
+            // a key column of an array type holds one element, and that element has to fit the element
+            // type: a bare counter in a TIMESTAMP ARRAY column is rendered ARRAY[TIMESTAMP '7'] and
+            // the engine rightly refuses it
+            return new Object[] { uniqueValue(type.getElementType() == null ? DataType.integer()
+                    : type.getElementType()) };
         case BOOLEAN:
             return value % 2 == 0;
         default: {

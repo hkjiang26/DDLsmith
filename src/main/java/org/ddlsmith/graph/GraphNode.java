@@ -43,6 +43,6 @@ public class GraphNode {
 
     @Override
     public String toString() {
-        return "n" + id + ":L" + labelIndex + properties;
+        return "n" + id + ":L" + labelIndex + GraphValues.format(properties);
     }
 }

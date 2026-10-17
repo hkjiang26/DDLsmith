@@ -9,6 +9,7 @@ import org.ddlsmith.ermodel.EREntity;
 import org.ddlsmith.ermodel.ERParticipant;
 import org.ddlsmith.ermodel.ERRelationship;
 import org.ddlsmith.graph.GraphEdge;
+import org.ddlsmith.graph.GraphFilling;
 import org.ddlsmith.graph.GraphLabel;
 import org.ddlsmith.graph.GraphModel;
 import org.ddlsmith.graph.GraphProperty;
@@ -104,25 +105,36 @@ public final class ERDiagramPrinter {
 
     /* ------------------------------------------------------------------ graph */
 
-    /** @return a multi-line description of {@code graph} and {@code schema}, with graph statistics */
-    public static String describe(GraphModel graph, GraphSchema schema) {
+    /**
+     * @return a multi-line description of {@code graph}, {@code schema} and the {@code filling} this
+     *         database gave them, with graph statistics
+     */
+    public static String describe(GraphModel graph, GraphSchema schema, GraphFilling filling) {
         StringBuilder sb = new StringBuilder();
         sb.append("graph ").append(graph.getGeneratorName())
                 .append(" (targetEdges=").append(graph.getTargetEdgeCount()).append(")\n");
         sb.append("  labels (").append(schema.getLabelCount()).append("):\n");
         for (GraphLabel label : schema.getLabels()) {
             sb.append("    ").append(label.getName())
-                    .append(" nodes=").append(graph.getNodesOfLabel(label.getIndex()).size()).append('\n');
-            for (GraphProperty slot : label.getProperties()) {
-                sb.append("      ").append(slot).append('\n');
+                    .append(" nodes=").append(graph.getNodesOfLabel(label.getIndex()).size());
+            if (filling != null && !filling.parentsOf(label.getIndex()).isEmpty()) {
+                sb.append(" inherits=L").append(filling.parentsOf(label.getIndex()));
+            }
+            sb.append('\n');
+            if (filling != null) {
+                for (GraphProperty slot : filling.attributesOfLabel(label.getIndex())) {
+                    sb.append("      ").append(slot).append('\n');
+                }
             }
         }
         sb.append("  relationship types (").append(schema.getRelationshipTypeCount()).append("):\n");
         for (GraphRelationshipType type : schema.getRelationshipTypes()) {
             sb.append("    ").append(type)
                     .append(" edges=").append(graph.getEdgesOfType(type.getIndex()).size()).append('\n');
-            for (GraphProperty slot : type.getProperties()) {
-                sb.append("      ").append(slot).append('\n');
+            if (filling != null) {
+                for (GraphProperty slot : filling.attributesOfRelationshipType(type.getIndex())) {
+                    sb.append("      ").append(slot).append('\n');
+                }
             }
         }
         sb.append("  nodes:\n");

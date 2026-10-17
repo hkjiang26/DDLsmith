@@ -91,7 +91,7 @@ public final class ConformanceProbeBuilder {
             List<String> notes) {
         List<ConformanceProbe> probes = new ArrayList<>();
         Dialect dialect = database.getDialect();
-        List<Usable> usable = usableForeignKeys(schema, plan, population);
+        List<Usable> usable = usableForeignKeys(schema, plan, population, notes);
         if (usable.isEmpty()) {
             return probes;
         }
@@ -984,7 +984,7 @@ public final class ConformanceProbeBuilder {
     /* ================================================================== small helpers */
 
     private static List<Usable> usableForeignKeys(RelationalSchema schema, ConformancePlan plan,
-            ConformancePopulator.Result population) {
+            ConformancePopulator.Result population, List<String> notes) {
         List<Usable> usable = new ArrayList<>();
         for (RelationalSchema.ForeignKeyRef ref : schema.getAllForeignKeys()) {
             Table child = ref.table;
@@ -1005,6 +1005,12 @@ public final class ConformanceProbeBuilder {
             Usable candidate = new Usable(child, parent, foreignKey);
             if (candidate.resolves()) {
                 usable.add(candidate);
+            } else {
+                // A foreign key whose columns do not all exist cannot be probed, and saying so is what
+                // makes the coverage measurable: without the note the constraint would simply be
+                // missing from the probes with nothing to distinguish it from a skipped one.
+                notes.add("no probe for " + candidate.describe() + ": one of the columns it names does not"
+                        + " exist in the table it belongs to");
             }
         }
         return usable;

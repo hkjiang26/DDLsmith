@@ -249,7 +249,8 @@ public final class EndToEndCheck {
         for (int index = 0; index < databases; index++) {
             Randomly.setSeed(options.getRandomSeed() + index / group);
             Pipeline.Generated generated = Pipeline.generate(new HeadlessState(options, index % group), dialect);
-            graphs.add(org.ddlsmith.graph.gen.ERDiagramPrinter.describe(generated.graph, generated.graphSchema));
+            graphs.add(org.ddlsmith.graph.gen.ERDiagramPrinter.describe(generated.graph, generated.graphSchema,
+                    generated.filling));
             diagrams.add(generated.erDiagram.getStatistics().toString());
             schemas.add(generated.adaptedSchema.getStatistics().toString());
 

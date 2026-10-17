@@ -24,7 +24,9 @@ import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.dbms.ConnectionOptions;
 import org.ddlsmith.dbms.Dialects;
 import org.ddlsmith.ddl.Dialect;
+import org.ddlsmith.graph.GraphEdge;
 import org.ddlsmith.graph.GraphLabel;
+import org.ddlsmith.graph.GraphNode;
 import org.ddlsmith.graph.GraphProperty;
 import org.ddlsmith.graph.GraphRelationshipType;
 import org.ddlsmith.graph.GraphSchema;
@@ -74,47 +76,77 @@ class ExpansionTest {
         return options;
     }
 
-    /** The complete structure of the graph and of the schema it was generated from. */
+    /** The complete structure of the base graph and of the schema it was generated from. */
     private static String graphSignature(Pipeline.Generated generated) {
-        return ERDiagramPrinter.describe(generated.graph, generated.graphSchema);
+        return ERDiagramPrinter.describe(generated.graph, generated.graphSchema, generated.filling);
     }
 
-    /** The graph schema alone, independent of the instance that was generated from it. */
+    /** The base graph schema alone: labels, relationship types, cardinalities - and no attributes. */
     private static String schemaSignature(GraphSchema schema) {
         StringBuilder sb = new StringBuilder();
         for (GraphLabel label : schema.getLabels()) {
-            sb.append('L').append(label.getIndex()).append(':');
-            for (GraphProperty property : label.getProperties()) {
-                sb.append(property.getKey()).append('/').append(property.getType()).append('/')
-                        .append(property.getPresenceProbability()).append(',');
-            }
-            sb.append(';');
+            sb.append('L').append(label.getIndex()).append(':').append(label.getName()).append(';');
         }
         for (GraphRelationshipType type : schema.getRelationshipTypes()) {
             sb.append('R').append(type.getIndex()).append(':').append(type.getFromLabelIndex()).append("->")
                     .append(type.getToLabelIndex()).append('/').append(type.getFromCardinality()).append('/')
                     .append(type.getToCardinality()).append('/').append(type.getFromParticipation()).append('/')
-                    .append(type.getToParticipation()).append(':');
-            for (GraphProperty property : type.getProperties()) {
-                sb.append(property.getKey()).append(',');
-            }
-            sb.append(';');
+                    .append(type.getToParticipation()).append(';');
         }
         return sb.toString();
     }
 
     @Test
-    void everyDatabaseOfAGroupGetsTheSameGraph() {
+    void everyDatabaseOfAGroupGetsTheSameBaseGraph() {
         MainOptions options = options(GROUP, false);
         String shared = null;
         for (int slot = 0; slot < GROUP; slot++) {
-            String signature = graphSignature(generate(SEED, slot, options));
+            Pipeline.Generated generated = generate(SEED, slot, options);
+            String signature = graphTopologySignature(generated);
             if (shared == null) {
                 shared = signature;
             } else {
-                assertEquals(shared, signature, "slot " + slot + " generated a different graph");
+                assertEquals(shared, signature, "slot " + slot + " generated a different base graph");
             }
         }
+    }
+
+    /**
+     * The base graph itself: the topology (which labels and relationship types exist, which nodes
+     * carry which label, which edges connect which nodes) and nothing else. The attributes and their
+     * values belong to the filling of one slot, so they must not appear here.
+     */
+    private static String graphTopologySignature(Pipeline.Generated generated) {
+        StringBuilder sb = new StringBuilder(schemaSignature(generated.graphSchema));
+        for (GraphNode node : generated.graph.getNodes()) {
+            sb.append('n').append(node.getId()).append(":L").append(node.getLabelIndex()).append(' ');
+        }
+        for (GraphEdge edge : generated.graph.getEdges()) {
+            sb.append('e').append(edge.getFromId()).append("->").append(edge.getToId()).append(":R")
+                    .append(edge.getRelationshipTypeIndex()).append(' ');
+        }
+        return sb.toString();
+    }
+
+    @Test
+    void everyDatabaseOfAGroupGetsItsOwnFilling() {
+        MainOptions options = options(GROUP, false);
+        Set<String> fillings = new LinkedHashSet<>();
+        Set<Integer> attributeCounts = new LinkedHashSet<>();
+        for (int slot = 0; slot < GROUP; slot++) {
+            Pipeline.Generated generated = generate(SEED, slot, options);
+            fillings.add(generated.filling.describe());
+            int attributes = 0;
+            for (int label = 0; label < generated.graphSchema.getLabelCount(); label++) {
+                attributes += generated.filling.attributesOfLabel(label).size();
+            }
+            attributeCounts.add(attributes);
+        }
+        // the whole point of the filling: one base graph, many different attribute layouts
+        assertTrue(fillings.size() >= GROUP - 1,
+                "only " + fillings.size() + " of " + GROUP + " databases filled the graph differently");
+        assertTrue(attributeCounts.size() > 1,
+                "every database gave the base graph the same number of attributes: " + attributeCounts);
     }
 
     @Test
@@ -148,7 +180,7 @@ class ExpansionTest {
             } else {
                 assertEquals(schema, signature, "slot " + slot + " generated a different graph schema");
             }
-            instances.add(graphSignature(generated));
+            instances.add(graphTopologySignature(generated));
         }
         assertTrue(instances.size() > 1, "the instance was not re-rolled at all");
     }

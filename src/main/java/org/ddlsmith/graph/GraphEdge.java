@@ -54,6 +54,7 @@ public class GraphEdge {
 
     @Override
     public String toString() {
-        return "e" + id + ":R" + relationshipTypeIndex + "(n" + fromId + "->n" + toId + ")" + properties;
+        return "e" + id + ":R" + relationshipTypeIndex + "(n" + fromId + "->n" + toId + ")"
+                + GraphValues.format(properties);
     }
 }

@@ -17,6 +17,7 @@ import org.ddlsmith.common.schema.ForeignKey;
 import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.common.schema.ReferentialAction;
 import org.ddlsmith.common.schema.Table;
+import org.ddlsmith.common.schema.UniqueConstraint;
 import org.ddlsmith.common.schema.View;
 import org.ddlsmith.data.RowGenerator;
 import org.ddlsmith.dbms.Dialects;
@@ -890,6 +891,80 @@ class MappingTest {
         untypedEntity.addAttribute(new ERAttribute("a1", null).setMultivalued(true));
         untyped.addEntity(untypedEntity);
         assertInvariants(map(untyped, SelfCheck.base()));
+    }
+
+    /* ------------------------------------------------------------------ alternate keys */
+
+    /**
+     * An alternate (candidate) key is not a second primary key: the entity is identified by one key
+     * and merely <em>unique</em> on the other, which is the classic {@code PRIMARY KEY (code), UNIQUE
+     * (name)} shape. Mapping the alternate key to the primary key instead would be a strictly stronger
+     * claim about the data, and it would lose the UNIQUE constraint the oracles probe.
+     */
+    @Test
+    @DisplayName("an alternate key becomes a UNIQUE constraint next to the primary key")
+    void alternateKeysBecomeUniqueConstraints() {
+        ERDiagram single = new ERDiagram().setName("alternate");
+        EREntity one = new EREntity("E0");
+        one.addAttribute(new ERAttribute("a0", DataType.integer()).setPrimaryKey(true));
+        one.addAttribute(new ERAttribute("a1", DataType.varchar(20)));
+        one.addAttribute(new ERAttribute("a2", DataType.varchar(50)).setAlternateKey(true));
+        single.addEntity(one);
+
+        for (KeyStrategy strategy : KeyStrategy.values()) {
+            RelationalSchema schema = map(single, SelfCheck.base().setKeyStrategy(strategy));
+            assertInvariants(schema);
+            Table table = schema.getTable("t_0");
+            assertTrue(enforcesUnique(table, List.of("a2")),
+                    strategy + ": the alternate key a2 must be enforced uniquely, uniques="
+                            + table.getUniqueConstraints() + " pk=" + table.getPrimaryKey().getColumns());
+        }
+
+        // two alternate attributes are one composite candidate key, exactly as two primary attributes are
+        ERDiagram composite = new ERDiagram().setName("alternateComposite");
+        EREntity two = new EREntity("E0");
+        two.addAttribute(new ERAttribute("a0", DataType.integer()).setPrimaryKey(true));
+        two.addAttribute(new ERAttribute("a1", DataType.varchar(20)).setAlternateKey(true));
+        two.addAttribute(new ERAttribute("a2", DataType.varchar(50)).setAlternateKey(true));
+        composite.addEntity(two);
+        RelationalSchema compositeSchema = map(composite, SelfCheck.base());
+        assertInvariants(compositeSchema);
+        assertTrue(enforcesUnique(compositeSchema.getTable("t_0"), List.of("a1", "a2")),
+                "a composite alternate key must be enforced as one constraint");
+
+        // an "alternate" key that is really the primary key must not be emitted twice: a redundant
+        // constraint on the key columns is harmless SQL but it made the conformance planner compare a
+        // row with itself under the same key and drop it
+        ERDiagram redundant = new ERDiagram().setName("redundantAlternate");
+        EREntity same = new EREntity("E0");
+        same.addAttribute(new ERAttribute("a0", DataType.integer()).setPrimaryKey(true).setAlternateKey(true));
+        redundant.addEntity(same);
+        RelationalSchema redundantSchema = map(redundant, SelfCheck.base());
+        assertInvariants(redundantSchema);
+        Table redundantTable = redundantSchema.getTable("t_0");
+        assertTrue(redundantTable.getUniqueConstraints().isEmpty(),
+                "the key columns must not be declared unique a second time: " + redundantTable.getUniqueConstraints());
+    }
+
+    private static boolean enforcesUnique(Table table, List<String> columns) {
+        if (table.getPrimaryKey() != null && sameColumns(table.getPrimaryKey().getColumns(), columns)) {
+            return true;
+        }
+        for (UniqueConstraint unique : table.getUniqueConstraints()) {
+            if (sameColumns(unique.getColumns(), columns)) {
+                return true;
+            }
+        }
+        for (org.ddlsmith.common.schema.Index index : table.getIndexes()) {
+            if (index.isUnique() && !index.isExpressionIndex() && sameColumns(index.getColumns(), columns)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameColumns(List<String> first, List<String> second) {
+        return first.size() == second.size() && first.containsAll(second);
     }
 
     /* ------------------------------------------------------------------ helpers */

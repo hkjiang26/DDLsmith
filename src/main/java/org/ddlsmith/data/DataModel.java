@@ -152,6 +152,32 @@ public class DataModel {
         if (value instanceof byte[]) {
             return java.util.Arrays.toString((byte[]) value);
         }
+        // A driver may hand an array back as a handle rather than as its content: H2 returns a
+        // java.sql.Array whose toString() is "ar0: ARRAY [CAST(805 AS SMALLINT)]", which would make
+        // every comparison against the inserted array a difference that says nothing about the
+        // engine. The content is read here, exactly as for a Clob or a Blob below.
+        if (value instanceof java.sql.Array) {
+            try {
+                return normalizeForComparison(((java.sql.Array) value).getArray());
+            } catch (java.sql.SQLException e) {
+                return value.toString();
+            }
+        }
+        if (value.getClass().isArray()) {
+            // an array column: two arrays are the same value when their elements are, so the
+            // comparison must look at the content. Rendering the Java identity (which is what
+            // toString() would do) made every array look different from itself. This covers both
+            // Object[] and a driver's primitive array.
+            StringBuilder sb = new StringBuilder("{");
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(normalizeForComparison(java.lang.reflect.Array.get(value, i)));
+            }
+            return sb.append('}').toString();
+        }
         // A driver may hand a large object back as a handle rather than as its content: H2 returns a
         // java.sql.Clob for a CLOB column whose toString() is "clob0: 'the text'", which would make
         // every comparison against the inserted text a difference that says nothing about the engine.
@@ -402,6 +428,13 @@ public class DataModel {
     public static Object fitToType(Object value, DataType type) {
         if (value == null || type == null) {
             return value;
+        }
+        if (value instanceof Object[]) {
+            // an array fits an array column as it is; for a column the adapter rewrote to a textual
+            // type (an engine without an array type) it becomes the braces text, which is what the
+            // dialect would render — converting it with toString() would store a Java identity
+            return type.getCategory() == DataType.Category.ARRAY ? value
+                    : org.ddlsmith.ddl.Dialect.arrayText((Object[]) value);
         }
         if (type.isIntegral() && value instanceof Number) {
             long number = ((Number) value).longValue();

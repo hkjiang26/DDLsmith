@@ -268,14 +268,8 @@ class ConformancePlannerTest {
     }
 
     private static List<List<String>> keySets(Table table) {
-        List<List<String>> keys = new ArrayList<>();
-        if (table.getPrimaryKey() != null && !table.getPrimaryKey().getColumns().isEmpty()) {
-            keys.add(table.getPrimaryKey().getColumns());
-        }
-        table.getUniqueConstraints().forEach(unique -> keys.add(unique.getColumns()));
-        table.getIndexes().stream().filter(index -> index.isUnique() && !index.isExpressionIndex())
-                .forEach(index -> keys.add(index.getColumns()));
-        return keys;
+        // the planner's own definition, so the test cannot drift from what the materializer enforces
+        return ConformancePlanner.keySets(table);
     }
 
     private static String entityOfNode(ConformanceTestSupport.Input input, PlannedRow row) {
