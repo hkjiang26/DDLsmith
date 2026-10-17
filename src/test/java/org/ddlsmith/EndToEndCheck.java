@@ -249,8 +249,11 @@ public final class EndToEndCheck {
         for (int index = 0; index < databases; index++) {
             Randomly.setSeed(options.getRandomSeed() + index / group);
             Pipeline.Generated generated = Pipeline.generate(new HeadlessState(options, index % group), dialect);
-            graphs.add(org.ddlsmith.graph.gen.ERDiagramPrinter.describe(generated.graph, generated.graphSchema,
-                    generated.filling));
+            // The base graph's identity, not the database's: the filling is drawn per slot, so a
+            // signature that included it would report every database of the group as its own graph and
+            // the count below would stop measuring what --databases-per-graph promises.
+            graphs.add(org.ddlsmith.graph.gen.ERDiagramPrinter.topologySignature(generated.graph,
+                    generated.graphSchema));
             diagrams.add(generated.erDiagram.getStatistics().toString());
             schemas.add(generated.adaptedSchema.getStatistics().toString());
 

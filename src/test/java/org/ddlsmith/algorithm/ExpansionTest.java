@@ -24,9 +24,7 @@ import org.ddlsmith.common.schema.RelationalSchema;
 import org.ddlsmith.dbms.ConnectionOptions;
 import org.ddlsmith.dbms.Dialects;
 import org.ddlsmith.ddl.Dialect;
-import org.ddlsmith.graph.GraphEdge;
 import org.ddlsmith.graph.GraphLabel;
-import org.ddlsmith.graph.GraphNode;
 import org.ddlsmith.graph.GraphProperty;
 import org.ddlsmith.graph.GraphRelationshipType;
 import org.ddlsmith.graph.GraphSchema;
@@ -117,15 +115,7 @@ class ExpansionTest {
      * values belong to the filling of one slot, so they must not appear here.
      */
     private static String graphTopologySignature(Pipeline.Generated generated) {
-        StringBuilder sb = new StringBuilder(schemaSignature(generated.graphSchema));
-        for (GraphNode node : generated.graph.getNodes()) {
-            sb.append('n').append(node.getId()).append(":L").append(node.getLabelIndex()).append(' ');
-        }
-        for (GraphEdge edge : generated.graph.getEdges()) {
-            sb.append('e').append(edge.getFromId()).append("->").append(edge.getToId()).append(":R")
-                    .append(edge.getRelationshipTypeIndex()).append(' ');
-        }
-        return sb.toString();
+        return ERDiagramPrinter.topologySignature(generated.graph, generated.graphSchema);
     }
 
     @Test

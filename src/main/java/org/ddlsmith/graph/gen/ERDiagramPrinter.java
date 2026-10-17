@@ -12,6 +12,7 @@ import org.ddlsmith.graph.GraphEdge;
 import org.ddlsmith.graph.GraphFilling;
 import org.ddlsmith.graph.GraphLabel;
 import org.ddlsmith.graph.GraphModel;
+import org.ddlsmith.graph.GraphNode;
 import org.ddlsmith.graph.GraphProperty;
 import org.ddlsmith.graph.GraphRelationshipType;
 import org.ddlsmith.graph.GraphSchema;
@@ -19,11 +20,11 @@ import org.ddlsmith.graph.GraphSchema;
 /**
  * Compact, dependency-free rendering of a generated graph and of the ER diagram derived from it.
  *
- * <p>{@link #describe(ERDiagram)} and {@link #describe(GraphModel, GraphSchema)} are meant for
- * failure logs: they print the entities with their attributes, the relationships with their
- * cardinalities and the structural statistics of the diagram (respectively of the graph), so that a
- * failing seed can be understood without re-running it. {@link #toMermaid(ERDiagram)} renders the
- * same diagram as a Mermaid {@code erDiagram} block for documentation.</p>
+ * <p>{@link #describe(ERDiagram)} and {@link #describe(GraphModel, GraphSchema, GraphFilling)} are
+ * meant for failure logs: they print the entities with their attributes, the relationships with
+ * their cardinalities and the structural statistics of the diagram (respectively of the graph), so
+ * that a failing seed can be understood without re-running it. {@link #toMermaid(ERDiagram)} renders
+ * the same diagram as a Mermaid {@code erDiagram} block for documentation.</p>
  */
 public final class ERDiagramPrinter {
 
@@ -146,6 +147,40 @@ public final class ERDiagramPrinter {
             sb.append("    ").append(edge).append('\n');
         }
         sb.append("  statistics: ").append(graph.getStatistics()).append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * A stable identity for the <em>base graph</em> and nothing else: which labels and relationship
+     * types exist and with which cardinalities and participations, which nodes carry which label, and
+     * which edges connect which nodes.
+     *
+     * <p>Two databases of a {@code --databases-per-graph} group share this signature and differ in
+     * everything downstream of it, so it is what answers "did the group really share one base graph?"
+     * and "how many base graphs did this run produce?". The filling is deliberately absent from it,
+     * and so are the property values: a filling is drawn per database, and {@link GraphNode#toString()}
+     * and {@link GraphEdge#toString()} print the values the filling put there, so a signature built
+     * from those descriptions would report one base graph as several — the opposite of what the group
+     * size is for.</p>
+     */
+    public static String topologySignature(GraphModel graph, GraphSchema schema) {
+        StringBuilder sb = new StringBuilder();
+        for (GraphLabel label : schema.getLabels()) {
+            sb.append('L').append(label.getIndex()).append(':').append(label.getName()).append(';');
+        }
+        for (GraphRelationshipType type : schema.getRelationshipTypes()) {
+            sb.append('R').append(type.getIndex()).append(':').append(type.getFromLabelIndex()).append("->")
+                    .append(type.getToLabelIndex()).append('/').append(type.getFromCardinality()).append('/')
+                    .append(type.getToCardinality()).append('/').append(type.getFromParticipation()).append('/')
+                    .append(type.getToParticipation()).append(';');
+        }
+        for (GraphNode node : graph.getNodes()) {
+            sb.append('n').append(node.getId()).append(":L").append(node.getLabelIndex()).append(' ');
+        }
+        for (GraphEdge edge : graph.getEdges()) {
+            sb.append('e').append(edge.getFromId()).append("->").append(edge.getToId()).append(":R")
+                    .append(edge.getRelationshipTypeIndex()).append(' ');
+        }
         return sb.toString();
     }
 

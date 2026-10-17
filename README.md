@@ -167,11 +167,11 @@ of a hundred questions per database, computed from the graph rather than from a 
 rewritten query, plus a handful of **negative probes**: rows the schema forbids, which the engine has to
 refuse, and rows the standard allows, which it has to store. A refusal is only believed when it is an
 *integrity* refusal — a data exception means the probe's own row was invalid, and becomes a note
-instead of a finding. Its measured false-positive census is 300 databases and about 6 000 semantic
-queries with 0 findings on the embedded engines, and the gaps it cannot materialize are announced in
-the report rather than guessed. The negative probes were measured where they matter: on the database
-the engine defect `bugs/mysql/005` lives in, the old bank asked 32 questions and reported nothing,
-while the probes now ask 94 and report the defect.
+instead of a finding. Its false-positive census is clean on the embedded engines, and the gaps it
+cannot materialize are announced in the report rather than guessed. The negative probes ask the
+opposite question, and they are what found the NULL-beside-the-key MySQL defect §11 describes: on
+the database that defect lives in, the older positive-only bank asked 32 questions and reported
+nothing, while the probes now ask 94 and report it.
 
 ## 4. Requirements
 
@@ -369,14 +369,18 @@ java -jar target/DDLsmith.jar postgres --algorithm differential --compare-with p
 | SQLite | embedded, always available | dynamically typed; foreign keys disabled unless `PRAGMA foreign_keys = ON`, which the dialect issues per connection |
 | H2 | embedded, always available | strict, standards-oriented DDL; 86 of 109 DDL features declared, each derived from an empirical probe |
 | DuckDB | embedded, always available | deliberately partial DDL support; 72 features declared, each derived from an empirical probe |
-| PostgreSQL | client/server | the richest DDL support (100 features); run against a live 18.6 server — eight server-only defects found and fixed; every generated database gets a schema of its own, so a 20-database run creates 20 schemas and no longer collides |
-| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B; three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 |
+| PostgreSQL | client/server | the richest DDL support (100 features); run against a live 18.6 server; every generated database gets a schema of its own, so a 20-database run creates 20 schemas and no longer collides |
+| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; three defects are known in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 |
 
-## 10. Verified results
+## 10. Verification
 
-Everything below was measured on the committed code, not projected.
+Everything in this section is produced by a program in this repository, and each item names the
+program or the command that produces it. No figure here quotes a run whose log is not shipped, and
+every command below can be repeated as written.
 
-**Unit and component tests — 375 tests, 0 failures** (`mvn test`):
+### 10.1 The test suite
+
+`mvn test` — **375 tests, 0 failures**:
 
 | Suite | Tests | What it covers |
 | ----- | ----- | -------------- |
@@ -393,72 +397,55 @@ Everything below was measured on the committed code, not projected.
 | `IntegrationRegressionTest` | 7 | the defects that only a whole schema or a whole run could reveal: colliding index identities, unindexable key types and their propagation to referencing columns, DDL dumping, comment-only renderings, replayable failure logs, the parenthesised disjunction DuckDB reports, and a differential run reading each engine's own namespace |
 | `RunTerminationTest` | 1 | a multi-threaded run terminates once every database has been tested |
 | `MultiThreadedReproducibilityTest` | 1 | the same seed generates the same DDL whatever `--threads` is set to |
-| `GeneratorRegressionTest` | 9 | the rules the hour-long runs showed to be missing: schema-qualified statements, key types that propagate along a chain of foreign keys, no constraint on a column DuckDB adds, no ALTER of a table DuckDB refuses, no broken view, no colliding constraint name, no unindexable column in an index, no DROP of a column a CHECK constraint names, no DECIMAL widened past what the engine accepts |
+| `GeneratorRegressionTest` | 9 | the rules the long runs showed to be missing: schema-qualified statements, key types that propagate along a chain of foreign keys, no constraint on a column DuckDB adds, no ALTER of a table DuckDB refuses, no broken view, no colliding constraint name, no unindexable column in an index, no DROP of a column a CHECK constraint names, no DECIMAL widened past what the engine accepts |
 | `SchemaRepairTest` | 1 | a generated column is never based on another generated column (H2 refuses it) |
 | `CliBehaviourTest` | 3 | `--log-each-select` writes the log it promises, a harness crash is recorded with its seed, connection options reach every client/server engine |
 | `BugRepositoryTest` | 11 | signature normalization, accumulation within a run, accumulation **across** runs, the reproduction command carrying the run options |
 
-**End-to-end (`EndToEndCheck`) — ALL CHECKS PASSED:** for SQLite, H2 and DuckDB, three rounds of
-graph → ER → relational schema → DDL → catalog introspection, each with **0 round-trip
-differences**; and three rounds of differential comparison of one common schema across all three
-engines with **0 differences**.
+### 10.2 The standalone self-checks
 
-**The enhanced ER layer — measured on this build, not projected.** The feature catalogue it
-implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
+`EndToEndCheck` and the `*SelfCheck` programs are plain `main` programs, so surefire does not run
+them. Build the classpath once (see §5) and run them:
 
-* `mvn test` — **375 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
-  type, shared subclass, composite keys, nested composites, specialization completeness), the
-  category union-membership check a generated row has to satisfy, and the filling stage's own tests;
-* the graph self-check — **1 200 diagrams** (6 generators × 200 seeds) plus a 720-diagram option
-  matrix, **0 invariant failures**, and every EER feature observed;
-* the filling round — one base graph filled differently per database (**200 databases produced 200
-  distinct fillings** on each of SQLite, H2 and DuckDB, and on the differential run), the attribute
-  count spanning 0..12 per label, `TIME`/`TIMESTAMPTZ`/`UUID`/`JSON`/`ENUM`/`ARRAY` reaching the ER
-  attributes, alternate keys mapping to `UNIQUE`, and **no feature rarer than 62% of its previous
-  rate** (four became more reachable: weak entities 2.8×, shared subclasses 2.3×, ternary
-  relationships 1.9×, multi-valued attributes 1.2×), including the first multi-level generalization
-  hierarchies the generator has ever produced — and eight latent generator defects the new inputs
-  exposed, each fixed with its own probe or test;
-* the mapping self-check — **55 212 mappings** over 10 368 strategy combinations and 9 diagram
-  families, **0 invariant violations**;
-* SQLite, H2 and DuckDB — **150 databases each** with the default oracle set: **0 findings**;
-* `sqlite --algorithm differential --compare-with h2,duckdb` — **0 findings**;
-* `--algorithm evolution --evolve-steps 25` — **120 databases on each of SQLite, H2 and DuckDB, 0
-  findings**: the `ALTER` steps run against the new table shapes (a category table with a
-  union-membership `CHECK`, an aggregation join table, a shared-subclass lattice, composite keys);
-* `--algorithm constraints --oracle ALL` — **40 databases each on SQLite and H2, 0 findings**;
-* `--print-ddl-only` — 20 seeds × 5 dialects, each printed twice: **200 renderings, 0 differences
-  between the two printings**, and every new construct present in the sample.
+```shell
+mvn -Pcore-api process-classes
 
-**Full tool runs:** two acceptance sessions ran nine categories for half an hour or an hour each:
+# Linux / macOS
+java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" org.ddlsmith.EndToEndCheck
+java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" org.ddlsmith.graph.gen.SelfCheck 200
+java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" org.ddlsmith.mapping.impl.SelfCheck
 
-* the second session ran the nine categories twice, 30 minutes each, on identical seed ranges, so the
-  second round is a seed-for-seed A/B check of the first round's fixes: **648 failures on 48 891
-  databases became 2 on 42 938**, and both survivors are engine behaviour rather than tool defects
-  (SQLite evaluating a sibling `CASCADE` before `RESTRICT`; DuckDB refusing a row that references
-  itself). Every one of the 422 failure logs of the first round was a DDLsmith defect, and all were
-  fixed and re-verified at their own seeds (32 of 32 targeted re-runs clean);
-* SQLite 3 533 / H2 38 000 / DuckDB 3 576 databases — **0 failures** with the default oracle set;
-* differential SQLite/H2/DuckDB 1 522 databases — **0 failures**;
-* `--print-ddl-only` 1 069 iterations over five dialects × six graph generators, each printed twice —
-  **0 problems, and the two printings were byte-identical every time**;
-* `--reproduce` 307 replays of recorded failure logs — every replay ran the recorded statements;
-* the first session ran the same categories for an hour each: SQLite 5 837 databases, DuckDB 7 087
-  databases and differential 2 800 databases with **0 failures**; H2 83 500 databases with 20 failures,
-  all one generator defect (a generated column computed from another generated column); and 1 496
-  `--reproduce` replays;
-* the MySQL campaign's post-review round (`mysql5`: six categories in parallel, 30 minutes and 8
-  threads each) ran **1 292 databases and 1 651 DDL renderings with 6 findings, all six the same
-  documented MySQL deviation** (self-referencing `ON UPDATE CASCADE`, filed as `bugs/mysql/001`). The
-  trusted categories alone — `mysql`, `evolution`, `differential` — are **1 066 databases with 0
-  findings**, `--print-ddl-only` printed 1 651 schemas twice with 0 problems, and all six failure logs
-  replayed to the statement. A seed block that used to report a `DATA_MISMATCH` reports 0 after the
-  comparison fix.
-* the two-hour MySQL conformance experiment of 2026-10-10 (four rounds, `--oracle ALL` and
-  `graph-conformance`, latest MySQL image): **3 506 databases, ≥ 183 000 statements, 13 failures in 4
-  distinct classes** — one MySQL defect in the SQL-engine foreign key path (`bugs/mysql/005`, a foreign
-  key is not checked when a column of the index enforcing it is NULL) and three DDLsmith false-positive
-  classes, since fixed and re-measured one database at a time against the pre-fix build.
+# Windows (PowerShell or cmd) - the separator is a semicolon
+java -cp "target/test-classes;target/classes;$(Get-Content target/cp.txt -Raw)" org.ddlsmith.EndToEndCheck
+```
+
+`graph.gen.SelfCheck` takes the number of seeds per generator, so `200` means 6 × 200 diagrams.
+
+| Program | What it reports |
+| ------- | --------------- |
+| `EndToEndCheck` | **ALL CHECKS PASSED.** For SQLite, H2 and DuckDB: 3 rounds of graph → ER → relational schema → DDL → catalog introspection, each with **0 round-trip differences**; 3 rounds of differential comparison of one common schema across the three engines, **0 differences**; and the sampling check — **8 databases from 2 base graphs, 8 distinct ER diagrams, 8 distinct schemas, 8/8 clean round trips.** |
+| `graph.gen.SelfCheck 200` | The ER layer over **1 200 diagrams** (6 generators × 200 seeds) with **0 invariant failures** and every classic and enhanced ER feature observed (ternary, aggregation, category, shared subclass, composite and alternate keys, nested composites, multi-level hierarchies, attributes outside the common domains), plus a **720-diagram option matrix with 0 failures**. It also prints what the filling stage produces: lean 99 / normal 800 / wide 301 fillings, **0..12 attributes per label** (385 labels carry none, 338 carry twelve), ISA depth 2 = 741 and 3 = 22. |
+| `mapping.impl.SelfCheck` | **55 212 mappings** over **10 368 strategy combinations** and 300 random option sets: **0 invariant violations** across 22 228 assertions, and **3 559 dropped ER attributes, each announced in the trace with a reason — none lost silently**. |
+
+### 10.3 A tool run
+
+These are the runs behind the claims in §3 and §9. They need no server and no container — the three
+embedded engines run in process — and each of them reports **0 findings**:
+
+| Command | Result |
+| ------- | ------ |
+| `java -jar target/DDLsmith.jar sqlite --num-tries 50 --random-seed 700` | 50 databases, 0 failures |
+| the same with `h2`, and with `duckdb` | 50 databases each, 0 failures |
+| `… sqlite --num-tries 50 --random-seed 700 --algorithm differential --compare-with h2,duckdb` | 50 databases compared against two other engines at once, 0 failures |
+| `… sqlite --num-tries 30 --random-seed 100 --oracle graph-conformance` | 30 databases, about 2 000 semantic queries, 0 findings (H2 and DuckDB likewise) |
+| `… sqlite --num-tries 30 --random-seed 900 --algorithm evolution --evolve-steps 25` | 30 databases, ~2 000 statements, 0 failures (H2 and DuckDB likewise) |
+| `… sqlite --num-tries 20 --random-seed 950 --algorithm constraints --oracle ALL` | 20 databases, ~3 000 statements, 0 failures (H2 likewise) |
+| `… <engine> --print-ddl-only --random-seed <1..20>` for the five dialects, each seed printed twice | 200 renderings, **0 differences between the two printings** |
+
+Each of these is a sample, not a proof: a clean run says the oracles found nothing on those seeds,
+which is what makes a *finding* on another seed worth reading. The `--oracle ALL` and
+`--algorithm constraints` categories in particular are marked experimental in §12.
+
 
 ## 11. Findings about the engines
 
@@ -563,8 +550,8 @@ relevant module's self-check:
   *FOREIGN KEY Constraint Differences* as a deviation from SQL standards ("If `ON UPDATE CASCADE` or
   `ON UPDATE SET NULL` recurses to update the same table it has previously updated during the same
   cascade, it acts like `RESTRICT`"). Found by the `referential-action` oracle in generated databases
-  with a recursive relationship; filed as `bugs/mysql/001`, and the MySQL self-check pins the rule
-  with a live probe so a later version that starts cascading is reported as a change.
+  with a recursive relationship, and pinned by the MySQL self-check with a live probe, so a later
+  version that starts cascading is reported as a change.
 * **MySQL 26.7.0 refuses a cascading delete outright once a self-referencing `ON DELETE CASCADE` chain
   is three rows deep.** Two tables, and the statement is rejected without deleting anything:
 
@@ -583,8 +570,8 @@ relevant module's self-check:
   child tables behave exactly like one, so the message's "tables limit" is not what the engine counted —
   and the self-reference only matters when it cascades. It is a **regression in the SQL-engine foreign
   key path MySQL 9.6 introduced**: MySQL 8.0.28 accepts the delete and removes every row, and so does
-  26.7.0 itself when started with `innodb_native_foreign_keys=TRUE`. Filed as `bugs/mysql/003`, and
-  pinned by `MySqlSelfCheck.checkCascadeDeleteChainRule`, which asserts the refusal on the SQL-engine
+  26.7.0 itself when started with `innodb_native_foreign_keys=TRUE`. Pinned by
+  `MySqlSelfCheck.checkCascadeDeleteChainRule`, which asserts the refusal on the SQL-engine
   path and the correct behaviour on the InnoDB path.
 * **MySQL 26.7.0 does not enforce a self-referencing *composite* foreign key at all.** The table
   accumulates rows whose key columns are all non-NULL and have no parent — so this is not the
@@ -603,16 +590,16 @@ relevant module's self-check:
   The trigger needs a self-referencing composite key in a table that also carries additional indexes
   over the foreign key columns: dropping those indexes, using `INT` key columns, making the key
   non-self-referencing or putting it on a `UNIQUE` key all make the engine reject the row correctly.
-  Filed as `bugs/mysql/004`; found by the `constraint-enforcement` oracle, and invisible to every
+  Found by the `constraint-enforcement` oracle, and invisible to every
   catalog-reading oracle — `TABLE_CONSTRAINTS`, `REFERENTIAL_CONSTRAINTS` and `SHOW CREATE TABLE` all
   report the constraint that is not being checked.
-* **The three MySQL defects above live in one place, and no catalog can see any of them.** `bugs/mysql/002`
-  (a single-column foreign key skipped once a NULL appears in an unrelated column of the index serving
-  it), `003` and `004` are all in the SQL-engine foreign key path introduced in MySQL 9.6, and each of
-  them leaves the catalog reporting a constraint the engine does not honour. Only an oracle that *tries
-  to violate a constraint* finds them — which is why the twelve-hour bug-hunting campaign of 2026-10-06
-  gave the `constraint-enforcement` family three of its ten categories and ran the same seed blocks
-  against both foreign key paths of one server version, so that a disagreement between them needs no
+* **These MySQL defects live in one place, and no catalog can see any of them.** A single-column
+  foreign key skipped once a NULL appears in an unrelated column of the index serving it, the
+  cascade-depth refusal above and the composite key above are all in the SQL-engine foreign key path
+  introduced in MySQL 9.6, and each of them leaves the catalog reporting a constraint the engine does
+  not honour. Only an oracle that *tries to violate a constraint* finds them — which is why the
+  `constraint-enforcement` family carries three of the ten MySQL self-check categories, run against
+  both foreign key paths of one server version, so that a disagreement between the two paths needs no
   cross-version confound.
 * **MySQL compares strings its own way unless it is told otherwise, and DDLsmith now tells it.** The
   server default (`utf8mb4_0900_ai_ci`) is case- and accent-insensitive, so a `UNIQUE` column accepted
@@ -620,10 +607,9 @@ relevant module's self-check:
   `CREATE TABLE` time — none of which is what the schema DDLsmith asked for means. Generated MySQL
   schemas therefore declare `COLLATE utf8mb4_0900_bin` on every character column
   (`Dialect.getStringCollation`, applied by `SchemaAdapter`): code-point ordered and `NO PAD`, which is
-  exactly Java's `String.equals`, and available from MySQL 8.0.17. That comparison mismatch produced
-  five of the thirteen findings of the two-hour conformance experiment, all of them DDLsmith's own; the
-  fix and the two other false-positive classes it was found with were each re-measured one database at
-  a time at the failing database's own seed against the pre-fix build.
+  exactly Java's `String.equals`, and available from MySQL 8.0.17. Without it, comparisons the schema
+  never asked for are read as engine behaviour: five findings of one conformance run were this class,
+  all of them DDLsmith's own.
 * **DuckDB does not preserve character lengths or numeric precision**: `VARCHAR(3)` is stored and
   reported as `VARCHAR`, so its schema comparison falls back to type categories.
 * **DuckDB 1.3.0 cannot index an `ARRAY` column, in any form.** A plain `CREATE INDEX`, a `UNIQUE`
@@ -693,74 +679,62 @@ announced as dropped today. The audit's severity-ordered remediation plan lists 
 [docs/ER-EER-FEATURE-CATALOGUE.md](docs/ER-EER-FEATURE-CATALOGUE.md) is the external yardstick: every
 ER/EER feature with its textbook definition, Chen notation, mapping rule and SQL expressibility.
 
-**The `evolution` algorithm is now trustworthy too.** It drives random `ALTER TABLE` statements and
-verifies the catalog after each one. It found and helped fix several real defects (name collisions
+**The `evolution` algorithm is trustworthy too.** It drives random `ALTER TABLE` statements and
+verifies the catalog after each one. It found and helped fix a set of real defects — name collisions
 with `IF NOT EXISTS` silently skipping creation, unqualified `ALTER TABLE`/`CREATE INDEX`/`CREATE VIEW`
 references, an engine's silent `DROP NOT NULL`, and a dozen generator defects that made it report the
-engine for DDLsmith's own mistakes). The last of those were removed in the second acceptance session:
-a column named by a `CHECK` constraint is no longer dropped, a `DECIMAL` is no longer widened past
-what the engine accepts, and the metamorphic relation no longer picks an action whose inverse the
-engine cannot express. It then ran **955 databases across SQLite, H2 and DuckDB with 0 failures**,
-twice, on identical seeds — so a finding from it can now be read as a finding rather than reviewed
-first.
+engine for DDLsmith's own mistakes. All of them are fixed and pinned by tests: a column named by a
+`CHECK` constraint is no longer dropped, a `DECIMAL` is no longer widened past what the engine
+accepts, and the metamorphic relation no longer picks an action whose inverse the engine cannot
+express. A run is in §10.3.
 
 One area is still **experimental** and off by default:
 
 * **The DML-heavy oracles** (`--oracle ALL`, `--algorithm constraints`): `constraint-enforcement`,
   `referential-action`, `default-value`, `metamorphic-alter` and `pivot-row`. Each is verified
-  against hand-built schemas in both directions (`ConstraintOracleTest`, `SchemaOracleTest`), and the
-  second acceptance session removed the whole false-positive mass they produced: the pivot-row oracle
-  now empties the tables it is about to query instead of comparing its own rows against rows left by
-  the oracles that ran before it (208 findings), the referential-action oracle no longer mistakes a
-  row that references itself for a child row (5), no longer reads `ON DELETE` when it asks about an
-  `ON UPDATE` (6), no longer looks the parent column name up in a map keyed by the child column name
-  (20), no longer forgets that a second foreign key can protect the parent row (13), and no longer
-  treats `NO ACTION` as if it were `RESTRICT` (1). The twelve-hour MySQL campaign of 2026-10-06 removed
-  two more, both found by the campaign's own census rather than by a hand-built fixture: the row
-  generator no longer emits a row that violates a declared `CHECK` — the union-membership constraint of a
-  category is an *at-least-one* disjunction, which the generator used to skip because it understood
-  single-column predicates only — and the referential-action oracle no longer counts child rows for a
-  cascading delete whose parent table cascades to itself, a shape in which the engine legitimately removes
-  a child row the count cannot see. `--oracle ALL` then ran 1 178 databases with 2 findings, both of them
-  engine behaviour with a minimal reproduction — but the expectation model is still separate from the row
-  generator's, so a green run is a strong signal rather than a proof.
+  against hand-built schemas in both directions (`ConstraintOracleTest`, `SchemaOracleTest`), and
+  where they used to produce false positives the cause was removed rather than explained: the
+  pivot-row oracle now empties the tables it is about to query instead of comparing its own rows
+  against rows left by the oracles that ran before it; the referential-action oracle no longer
+  mistakes a row that references itself for a child row, no longer reads `ON DELETE` when it asks
+  about an `ON UPDATE`, no longer looks the parent column name up in a map keyed by the child column
+  name, no longer forgets that a second foreign key can protect the parent row, and no longer treats
+  `NO ACTION` as if it were `RESTRICT`; the row generator no longer emits a row that violates a
+  declared `CHECK` — the union-membership constraint of a category is an *at-least-one* disjunction,
+  which it used to skip because it understood single-column predicates only — and the
+  referential-action oracle no longer counts child rows for a cascading delete whose parent table
+  cascades to itself, a shape in which the engine legitimately removes a child row the count cannot
+  see. The expectation model is still separate from the row generator's, so a green run is a strong
+  signal rather than a proof.
 
 PostgreSQL and MySQL have **now been run against a live server** (PostgreSQL 18.6, MySQL 26.7.0, in
-disposable containers). The first live run
-failed on its very first `CREATE TABLE`, and the survey that followed failed on nearly every database
-of both engines: eight defects were reachable only through a server, and none of them through an
-embedded engine. They are fixed.
+disposable containers), and that is a different test from the embedded engines — the first live run
+failed on its very first `CREATE TABLE`. The defects that only a server exposes are fixed, among them
+PostgreSQL resolving an unqualified foreign-key target in `public` instead of in the generated
+schema, a PostgreSQL introspector reading a non-foreign-key constraint as having a referenced table,
+MySQL's `CREATE INDEX IF NOT EXISTS` being declared and never rendered (the engine answers 1064 for
+it, so the feature is no longer claimed), a `CHECK` naming a column a referential action writes, and
+the spellings `pg_get_viewdef` and MySQL's CHECK clause come back with.
 
 Each generated database now gets a namespace of its own (`ddlsmith_database3`), which is what lets a
 run test more than one database against a server — a 20-database run creates 20 distinct namespaces
-on each engine and no longer collides. What was left was a normalisation tail in how the two catalogs
-spell CHECK expressions, indexes and view definitions back. **That tail has since been cleared and
-measured**: a 923-database MySQL census found 1 057 failures in 11 defect classes, all of them
-DDLsmith's own, which reduced to four root causes — MySQL backslash-escapes the quotes in the CHECK
-clause it reports, reports a unique index as a UNIQUE constraint with no index behind it, rewrites a
-view definition three ways, and refuses a CHECK on a column an `ON UPDATE CASCADE` writes (a rule the
-adapter had been missing exactly one action of, which alone accounted for 327 of the 1 499 defect
-units). After the fixes the same seed range went from 1 057 failures to **0**, and 2 182 databases
-across two further runs produced no findings at all.
+on each engine and no longer collides. The catalog-readback normalisation tail is where most of the
+MySQL work sat, and it reduced to four root causes, every one of them DDLsmith's own: MySQL
+backslash-escapes the quotes in the CHECK clause it reports, it reports a unique index as a UNIQUE
+constraint with no index behind it, it rewrites a view definition three ways, and it refuses a CHECK
+on a column an `ON UPDATE CASCADE` writes — a rule the adapter had been missing exactly one action
+of, and the largest single cause.
 
-A scaled **six-category campaign** on that build then exposed twelve more defects — none of them
-the engine's. Two were orchestration: every category derived the *same* per-database namespace and
+The remaining MySQL work was a set of DDL rules the generator had wrong, all now fixed. Two were
+orchestration rather than SQL: every parallel category derived the *same* per-database namespace and
 they dropped each other's objects, and the namespace reaper then deleted namespaces its siblings were
-still using. One was a composite dialect (`common(mysql+postgres)`) silently losing every engine trait
-that is looked up by engine name, which brought 61 rejected `CREATE TABLE`s back. Three were InnoDB
-implementation details the comparison mistook for disagreements (it materialises an index for every
-foreign key; PostgreSQL does not). The rest were statements the generator emitted that MySQL refuses:
-`MODIFY COLUMN` resetting attributes it does not restate, a `SET DEFAULT` expression needing
-parentheses, a default on a `TEXT` column, a `CHECK` on an auto-increment column, a rename of a column
-a generated column or an inline `CHECK` depends on, and dropping an index a foreign key is standing on.
-All are fixed. On the final build the campaign is **801 databases and 534 DDL renderings with 3
-findings** — the trusted oracle set (`crash`, `schema-round-trip`, `idempotence`,
-`differential-schema`, `metamorphic-alter`) reports nothing. A later review of those three found that
-two are a **documented MySQL deviation** (self-referencing `ON UPDATE CASCADE` acting like `RESTRICT`,
-now filed as `bugs/mysql/001`) and the third was a DDLsmith defect in how a key tuple containing a
-temporal column was compared — the model's `java.sql.Timestamp` and the driver's
-`java.time.LocalDateTime` were being compared as text. That one is fixed, with a regression test, and
-the two remaining findings now carry the engine's own words.
+still using. One was a composite dialect (`common(mysql+postgres)`) silently losing every engine
+trait looked up by engine name. Three were InnoDB implementation details the comparison mistook for
+disagreements (it materialises an index for every foreign key; PostgreSQL does not). The rest were
+statements the generator emitted that MySQL refuses: `MODIFY COLUMN` resetting attributes it does not
+restate, a `SET DEFAULT` expression needing parentheses, a default on a `TEXT` column, a `CHECK` on an
+auto-increment column, a rename of a column a generated column or an inline `CHECK` depends on, and
+dropping an index a foreign key is standing on.
 
 **The first extension oracle — `graph-conformance` — is attached through the plugin seam, not
 through the core.** It is deliberately *not* in the default oracle set (it inserts a whole instance,
@@ -773,11 +747,9 @@ result), so the same file can be rebuilt or replaced without touching the oracle
 `--evolve-steps` runs, in which
 the schema under test is no longer the mapped schema, and it removes the rows it inserted before the
 next oracle runs, so the differential algorithm's "still empty after the oracles" post-condition is
-untouched. Measured on the committed build: **300 databases and about 6 000 semantic queries across
-SQLite, H2 and DuckDB with 0 findings**, plus 20 differential databases with the oracle running on
-both engines; what it cannot materialize (aggregations, reference cycles with mandatory foreign keys,
-cycles among self-references) it announces in the report instead of guessing, and nine defects of the
-oracle's own construction that the measurements exposed were each fixed and re-measured.
+untouched. What it cannot materialize (aggregations, reference cycles with mandatory foreign keys,
+cycles among self-references) it announces in the report instead of guessing, and the defects of the
+oracle's own construction that measuring it exposed were each fixed. §10.3 has the run.
 
 ## 13. Project layout
 
