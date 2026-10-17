@@ -70,7 +70,7 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  *
  * <p>Run with (see the module report for the exact classpath):</p>
  * <pre>
- * java -cp "target\pg-classes;target\contract-classes;&lt;deps&gt;" org.ddlsmith.dbms.postgres.SelfCheck
+ * java -cp "target\pg-classes;target\core-api-classes;&lt;deps&gt;" org.ddlsmith.dbms.postgres.SelfCheck
  * </pre>
  */
 public final class SelfCheck {

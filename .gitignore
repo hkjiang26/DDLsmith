@@ -2,14 +2,13 @@
 # DDLsmith
 #
 # Tracked on purpose (do NOT add rules for these):
-#   src/, docs/            sources, the design/ER documents, and the research
+#   src/, docs/            sources, the design/ER documents and the research
 #                          probes under docs/er_features/
 #   config.json            the default connection settings the README documents
 #
-# The campaign evidence trees - runs/ (harness scripts and per-round scratch),
-# bugs/ (the filed defect reports) and logs/ (the failure logs) - are output,
-# not deliverables: a run regenerates them from a seed. The reports under docs/
-# quote the paths that evidence used to live at.
+# Everything a run produces - logs/ (failure logs), bugs/ (the filed defect
+# reports), the embedded databases and the --ddl-dump scripts - is output, not a
+# deliverable: a run regenerates it from a seed.
 # ---------------------------------------------------------------------------
 
 # --- Build output ----------------------------------------------------------
@@ -22,6 +21,8 @@ dependency-reduced-pom.xml
 logs/
 
 # The per-run defect reports the tool files into --bug-dir (default `bugs`).
+# Kept out of the repository because they are results about a specific engine
+# version on a specific machine, not part of the tool.
 bugs/
 
 # Campaign scratch space: one directory per acceptance round, each holding its
@@ -30,7 +31,6 @@ bugs/
 # scripts that drive a round are code and stay tracked; a round's reports and
 # captured inputs are results and do not.
 runs/*
-!runs/*.ps1
 !runs/*.sh
 !runs/*.py
 
@@ -52,6 +52,9 @@ runs/*
 hs_err_pid*.log
 replay_pid*.log
 
+# Machine-specific build settings (a JDK path, a private config path).
+build.local.*
+
 # --- IDE / editor ----------------------------------------------------------
 .idea/
 *.iml
@@ -72,7 +75,7 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
-# --- Python (the research scripts under docs/er_features) ------------------
+# --- Python (the research probes under docs/er_features) -------------------
 __pycache__/
 *.py[cod]
 .venv/

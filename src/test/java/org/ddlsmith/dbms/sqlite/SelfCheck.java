@@ -60,11 +60,12 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  * introspector and reports both the round trip and a handful of documented engine behaviours that
  * DDLsmith is meant to surface.
  *
- * <p>Run it with:</p>
+ * <p>Run it with ({@code <sep>} is {@code ;} on Windows and {@code :} elsewhere):</p>
  * <pre>
- * .\compile-subset.ps1 -Path 'src\main\java\org\ddlsmith\dbms\sqlite' -OutDir 'target\sqlite-classes'
- * .\compile-subset.ps1 -Path 'src\test\java\org\ddlsmith\dbms\sqlite' -OutDir 'target\sqlite-test-classes'
- * java -cp "target\sqlite-test-classes;target\sqlite-classes;target\contract-classes;$(cat target/cp.txt)" `
+ * mvn -Pcore-api process-classes
+ * javac -encoding UTF-8 -cp "target/core-api-classes<sep>$(cat target/cp.txt)" `
+ *       -d target/sqlite-test-classes src/test/java/org/ddlsmith/dbms/sqlite/*.java
+ * java -cp "target/sqlite-test-classes<sep>target/core-api-classes<sep>$(cat target/cp.txt)" `
  *      org.ddlsmith.dbms.sqlite.SelfCheck
  * </pre>
  *

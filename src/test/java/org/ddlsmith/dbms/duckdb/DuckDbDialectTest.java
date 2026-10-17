@@ -56,7 +56,8 @@ import org.junit.jupiter.api.Test;
  * Unit tests for the DuckDB dialect, type mapper and catalog introspector.
  *
  * <p>These tests are deliberately independent of Maven: they are compiled and executed with the
- * same {@code compile-subset.ps1} + {@code java} commands as {@link SelfCheck}, because the rest of
+ * same {@code mvn -Pcore-api process-classes} + {@code javac} + {@code java} recipe as
+ * {@link SelfCheck}, because the rest of
  * the project is being written in parallel. The type, dialect and introspection expectations are
  * the ones recorded in {@link SelfCheck}, which probes a live DuckDB 1.3 instance.</p>
  */
@@ -202,7 +203,7 @@ class DuckDbDialectTest {
     void foreignKeyTargetsMustExist() {
         DDLFeature feature = featureByName("FK_TARGET_MUST_EXIST");
         if (feature == null) {
-            // the compiled contract in target/contract-classes predates the constant; the SelfCheck
+            // the compiled contract in target/core-api-classes predates the constant; the SelfCheck
             // probe still exercises the behaviour and prints the result
             return;
         }
@@ -213,7 +214,7 @@ class DuckDbDialectTest {
 
     /**
      * Looks a {@link DDLFeature} up by name, so this test compiles and runs both before and after the
-     * compiled contract in {@code target/contract-classes} is refreshed with newly added constants.
+     * compiled contract in {@code target/core-api-classes} is refreshed with newly added constants.
      */
     private static DDLFeature featureByName(String name) {
         try {

@@ -125,20 +125,6 @@ public final class Randomly {
         return fromList(cache);
     }
 
-    private static Double getFromDoubleCache() {
-        if (!useCaching) {
-            return null;
-        }
-        List<Long> longs = CACHED_LONGS.get();
-        List<Double> doubles = CACHED_DOUBLES.get();
-        if (getBoolean() && !longs.isEmpty()) {
-            return (double) fromList(longs);
-        } else if (!doubles.isEmpty()) {
-            return fromList(doubles);
-        }
-        return null;
-    }
-
     private static String getFromStringCache() {
         if (!useCaching) {
             return null;
@@ -160,10 +146,6 @@ public final class Randomly {
                     : randomString;
         }
         return null;
-    }
-
-    private static boolean cacheProbability() {
-        return useCaching && getNextLong(0, 3) == 1;
     }
 
     private static String transformCachedString(String cached) {

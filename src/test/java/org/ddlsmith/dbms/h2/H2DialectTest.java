@@ -42,12 +42,12 @@ import org.junit.jupiter.api.Test;
  * need no database.</p>
  *
  * <p>Not run through {@code mvn test} while the other engine modules are still being written; run it
- * from the repository root with:</p>
+ * from the repository root with ({@code <sep>} is {@code ;} on Windows and {@code :} elsewhere):</p>
  * <pre>
- * .\compile-subset.ps1 -Path 'src\main\java\org\ddlsmith' -Exclude @('SelfCheck.java') -OutDir 'target\all-classes'
- * javac -sourcepath src\test\java -cp "target\all-classes;target\contract-classes;$(cat target/cp.txt)" `
- *       -d target\h2-test-classes src\test\java\org\ddlsmith\dbms\h2\*.java
- * java -cp "target\h2-test-classes;target\all-classes;$(cat target/cp.txt)" `
+ * mvn -Pcore-api process-classes
+ * javac -encoding UTF-8 -cp "target/core-api-classes<sep>$(cat target/cp.txt)" `
+ *       -d target/h2-test-classes src/test/java/org/ddlsmith/dbms/h2/*.java
+ * java -cp "target/h2-test-classes<sep>target/core-api-classes<sep>$(cat target/cp.txt)" `
  *      org.junit.platform.console.ConsoleLauncher --select-package org.ddlsmith.dbms.h2
  * </pre>
  */

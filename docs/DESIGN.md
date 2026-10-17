@@ -12,17 +12,29 @@ how it maps, and what is deliberately out of scope — is [ER-MODEL.md](ER-MODEL
 
 ### 1.1 What the graph generator produces
 
-`GraphSchema` describes what may exist:
+`GraphSchema` describes what may exist, and it describes **only nodes and edges**:
 
-* **labels** `L0..Ln`, each with property slots `k0..km` (name, `DataType`, presence probability);
+* **labels** `L0..Ln` — a node label, nothing else. A label carries no attributes;
 * **relationship types** `R0..Rt`, each connecting a from-label to a to-label, with
   * `fromCardinality` — the maximum number of *from* instances per one *to* instance,
   * `toCardinality` — the maximum number of *to* instances per one *from* instance,
-  * `fromParticipation` / `toParticipation` — whether every instance must take part,
-  * property slots of its own.
+  * `fromParticipation` / `toParticipation` — whether every instance must take part.
 
-A `GraphModel` is an instance of that schema: nodes with a label and property values, and directed
-edges with a relationship type and property values.
+A `GraphModel` is an instance of that schema: nodes with a label, and directed edges with a
+relationship type. It carries property *values* only after the filling has run (§1.5).
+
+`GraphFilling` is the other half of the input, and it is drawn **per database**: for every label and
+every relationship type it holds the attribute slots (key, `DataType`, presence probability), the
+primary key and the alternate key, and the labels a label inherits from. `GraphPropertyFiller` then
+gives every node and edge a value for each slot of its label or type.
+
+Keeping the two apart is what makes one base graph the source of many ER diagrams. The topology
+decides which ER *features are eligible* (a recursive type whose edges are all self-loops can become
+a multi-valued attribute; a 1:1 TOTAL link can become a specialization; a triangle of three labels
+can become a ternary relationship or an aggregation), and the filling decides which of them are
+*realized in this database* — how many attributes a table has, of which domain, which are NOT NULL,
+which form the keys, and whether a subtype link really becomes an inheritance link (it does when the
+child's attribute set is a strict superset of the parent's, which is how the filling materializes it).
 
 ### 1.2 Cardinality semantics (the part that is easy to get wrong)
 
@@ -47,20 +59,22 @@ every generator over hundreds of seeds.
 
 ### 1.3 Deriving ER features from graph structure
 
-The mapper is deliberately *structural*: ER features are consequences of the graph's shape rather
-than independent random choices, so that the resulting schema is coherent.
+The mapper is deliberately *structural*: ER features are consequences of the graph's shape plus the
+filling, rather than independent random choices, so that the resulting schema is coherent.
 
-| Graph pattern | ER feature | Why |
+| Graph pattern (with the filling) | ER feature | Why |
 | ------------- | ---------- | --- |
 | self-loop edge | recursive relationship, written as a *binary* relationship whose two roles are the same entity (a true degree-1 relationship is never produced — see [ER-GAPS.md](ER-GAPS.md) A5) | the relationship's two roles are the same entity |
 | parallel edges between the same pair of nodes | two distinct relationships between the same two entities | two foreign keys between the same tables, or two join tables |
-| node of degree 1 whose label has no mandatory property | weak entity | it has no key of its own and depends on its owner |
+| node of degree 1 whose label has no mandatory attribute *in this database's filling* | weak entity | it has no key of its own and depends on its owner |
 | all edges of a recursive type are self-loops with `toCardinality == MANY` | multi-valued attribute | the classic "multi-valued attribute becomes its own table" case |
-| label `A`'s property slots are a strict superset of `B`'s, with a total 1:1 relationship `A → B` | generalization: `A` is a subtype of `B` | `A` is a specialization carrying extra attributes |
-| a label that inherits the slots of **two** earlier labels, with a total 1:1 link to each | shared subclass (multiple inheritance) | the label is a specialization of both, so it is a lattice rather than a hierarchy |
+| the filling makes label `A`'s attribute slots a strict superset of `B`'s, and a total 1:1 relationship `A → B` exists | generalization: `A` is a subtype of `B` | `A` is a specialization carrying extra attributes |
+| the same, for **two** parents (the filling copies both parents' slots) | shared subclass (multiple inheritance) | the label is a specialization of both, so it is a lattice rather than a hierarchy |
+| a parent that is itself a child | multi-level hierarchy | the filling's inheritance plan is a DAG, capped at the depth the mapper recognises |
 | three labels pairwise connected by three instantiated types | ternary relationship **or** aggregation | a binary graph can only express a 3-way association this way; which of the two readings is taken is drawn at random, and the aggregation reading needs the M:N side as its inner relationship |
 | a label with two 1:1 types that are PARTIAL on its own side | union type (category) | the partial participation says "an instance is an A **or** a B", which is union semantics; a shared subclass would be TOTAL ("and") |
-| label with ≥ 2 mandatory property slots | composite natural key | the pair identifies the entity, which exercises multi-column keys end to end |
+| two mandatory attributes in the filling | composite natural key | the pair identifies the entity, which exercises multi-column keys end to end |
+| a second pair of mandatory attributes the filling marks as an alternate key | candidate key | mapped to a `UNIQUE` constraint next to the primary key |
 | entity with ≥ 2 numeric attributes | derived attribute | the last one is declared derivable from the others |
 | entity with ≥ 2 same-typed attributes | composite attribute (nested when a third exists) | the two are grouped into one composite attribute, and one component may itself be composite |
 | hub node (high degree) | entity in many relationships | wide foreign-key fan-out |
@@ -70,42 +84,74 @@ Each heuristic is conservative (it only fires when the structural evidence is un
 documented in `DefaultGraphToERMapper`. When a heuristic does not fire, the plain case applies, so
 the mapper is total: it never fails on a generated graph.
 
-Two rows of this table describe features the pipeline cannot actually reach: the ISA row implies
-multi-level hierarchies (every parent is a root label, so the depth is always 1), and the
-weak-entity row requires the dependent to be the only relationship type incident to its label. Both
-are analysed, with evidence and a fix, in [ER-GAPS.md](ER-GAPS.md) §A1 and §A3. The same document
-records that the subtype row's slot-sharing makes the subtype re-declare its parent's attributes,
-which the mapping then materializes twice ([B7](ER-GAPS.md)).
+One row of this table used to describe a feature the pipeline could not actually reach: the ISA row
+implied multi-level hierarchies, and the schema generator only ever let a *root* label be a parent.
+The filling's inheritance plan is what closed that ([ER-GAPS.md](ER-GAPS.md) §A1); the weak-entity
+ownership chain of §A3 is still open. The audit also recorded that the subtype's slot-sharing made it
+re-declare its parent's attributes, which the mapping then materialized twice — also fixed
+([B7](ER-GAPS.md)).
 
-### 1.4 One graph, several ER diagrams (two-level sampling)
+### 1.4 One base graph, many ER diagrams (three-level sampling)
 
-`--databases-per-graph K` (default 8) makes the pipeline sample on two levels instead of one. The graph
-- its schema and its instance - is generated from the seed of the group; the ER interpretation and the
-mapping decisions are drawn from a slot seed derived from that seed (`Pipeline.slotSeed`). The
-databases of a group therefore share their nodes and edges and differ in how they are read and mapped.
+`--databases-per-graph K` (default 8) makes the pipeline sample on three levels instead of one. The
+base graph — its schema and its instance — is generated from the seed of the group; the **filling**,
+the ER interpretation and the mapping decisions are drawn from a slot seed derived from that seed
+(`Pipeline.slotSeed`). The databases of a group therefore share their nodes and edges and differ in
+what those nodes and edges *mean*.
 
-The split follows what the decisions depend on, and that is why neither level replaces the other:
+The split follows what the decisions depend on, and that is why no level replaces another:
 
-* **Eligibility is decided by the graph.** Whether a label can become a weak entity, whether a
-  recursive type can become a multi-valued attribute, whether a triangle can become an aggregation or
-  a ternary relationship - all of that is a property of the generated instance. Re-rolling the
-  interpretation cannot change it (`detectWeakEntities` contains no coin at all); re-rolling the
-  instance (`--reroll-instance`) can.
-* **Activation is decided by the coins in the mapper and in `MappingOptions`** - whether an eligible
+* **Eligibility is decided by the base graph.** Whether a label *can* become a weak entity, whether a
+  recursive type *can* become a multi-valued attribute, whether a triangle *can* become an
+  aggregation or a ternary relationship — all of that is a property of the generated instance.
+  Re-rolling the filling or the interpretation cannot change it (`detectWeakEntities` contains no
+  coin at all); re-rolling the instance (`--reroll-instance`) can.
+* **What is realized is decided by the filling**: how many attributes each label and relationship type
+  gets (lean 0..3, normal 2..6, wide 5..12 per label), from which per-database domain pool, how many
+  of them are mandatory, which form the primary and the alternate key, and which candidate subtype
+  links the inheritance plan turns into real specializations. This is the level that makes two
+  databases of one group look like two different schemas rather than two readings of one.
+* **Activation is decided by the coins in the mapper and in `MappingOptions`** — whether an eligible
   generalization really becomes one, which strategy maps a 1:1, which attribute becomes the key.
 
-Measured over generated groups, the two levels are complements rather than substitutes: different
+Measured over generated groups, the levels are complements rather than substitutes: different base
 graphs support nearly disjoint sets of ER readings, while within one graph the structural readings
 saturate after a few hundred re-rolls (the mapping decisions keep varying much longer). That is why
 the group size is a knob and not a constant, and why the default is 8: at a fixed budget of 1024
 databases, 8 costs 11% repeated ER diagrams while 16 costs 21% and 32 costs 28%, and the number of
-distinct relational schemas stays at 100% for every group size (the measurements are in
-[ACCEPTANCE-EXPANSION.md](ACCEPTANCE-EXPANSION.md) §5.1).
+distinct relational schemas stays at 100% for every group size. The filling round made the second
+level much stronger — the same measurement now reports a distinct filling for every database of a
+150-database run.
 
-With `K == 1` nothing is re-seeded: the pipeline consumes the random stream exactly as it always has.
-That is the value to pass when regenerating a database recorded before this option existed - with the
-default of 8 the same seed produces the same graph but a different ER diagram. Databases recorded from
-now on carry the group size and the slot in their failure reports.
+With `K == 1` nothing is re-seeded: the pipeline consumes the random stream in one pass, exactly as
+it always has. That is the value to pass when regenerating a database recorded before the group
+option existed - with the default of 8 the same seed produces the same base graph but a different
+database. Databases recorded from now on carry the group size and the slot in their failure reports.
+
+### 1.5 The filling
+
+`RandomGraphFiller` is where the attributes come from, and it is drawn once per database. What it
+decides, and why each decision is a decision rather than a constant:
+
+| Decision | Distribution | What it buys |
+| -------- | ------------ | ------------ |
+| **attribute count per label** | one of three profiles, drawn per database: lean `0..3`, normal `2..6`, wide `5..12` (weights 0.25/0.5/0.25); relationship types get `0..1` / `0..3` / `1..5` | the same base graph is a key-only table in one database and a twelve-column table in the next |
+| **domains** | a per-database pool: the twelve `DataType.commonTypes()` plus, each with its own probability, `TIME`, `TIMESTAMPTZ`, `UUID`, `JSON`, an `ENUM` (3..5 labels) and an `ARRAY` type | cross-database contrast in the type surface (a database whose keys are dates next to one whose keys are strings), and coverage of the types the dialects and introspectors are supposed to be tested against |
+| **nullability** | a mandatory share drawn per database from {0.25, 0.45, 0.65, 0.85}; the rest of the slots take presence 0.9/0.7/0.5 | one database where almost everything is NOT NULL and one where most columns are nullable, which is what decides how often a label has a natural key at all |
+| **keys** | one mandatory attribute becomes the primary key, or two with probability 0.3; one or two further mandatory attributes become an alternate key with probability 0.25 | composite keys, and `UNIQUE` constraints beside a primary key |
+| **inheritance** | candidate links (1:1 `TOTAL` relationship types) are realized with probability 0.6, or 0.85 when the child has more than one candidate, subject to: acyclic, at most two parents, no two parents ISA-related, at most three levels, and the child strictly larger than each parent | the same base graph is a hierarchy in one database and a plain association in the next; multi-level chains are reachable |
+
+Two constraints are not drawn but enforced, because the rest of the pipeline depends on them. A slot
+that takes part in a key is restricted to the indexable, comparable domains (the engine indexes a key
+column, and an `ARRAY`/`JSON`/`ENUM` key would be rewritten by the adapter, after which the graph
+value would no longer fit the column the engine really created). And the inheritance plan is a DAG
+whose every link makes the child a strict superset of the parent — that is exactly the predicate the
+ER mapper tests, so a planned link either becomes a specialization or a plain association, never
+something in between.
+
+`GraphPropertyFiller` then gives every node and edge a value per slot of its label or type, with the
+same value pools as before. Nothing in the filling is a CLI knob: it is a property of the generator,
+so a run stays reproducible from its seed and slot alone.
 
 ---
 
@@ -354,9 +400,9 @@ The chain that makes its expectation trustworthy is the one the project already 
 
 A disagreement is therefore either the engine not implementing what it accepted, or DDLsmith being
 wrong about what it asked for — and the second case is what the census of a run measures, exactly as
-it does for the built-in oracles. The measured census (300 databases, about 6 000 semantic queries,
-0 findings, and the gaps it announces instead of guessing) is
-[ACCEPTANCE-CONFORMANCE.md](ACCEPTANCE-CONFORMANCE.md).
+it does for the built-in oracles. The measured census is 300 databases and about 6 000 semantic
+queries with 0 findings, and the gaps it cannot materialize are announced in the report rather than
+guessed.
 
 **What is materialized** (`ConformancePlanner`):
 
@@ -432,8 +478,8 @@ same findings for the built-in oracles whether or not an extension is selected.
 The seam is deliberately small: the core changed by one `ServiceLoader` call, one visibility widening
 (`OracleSupport`, so an extension renders qualified references exactly as the built-ins do) and one
 move (`DataModel.canonical`, so the comparison rules have a single home). The extension's own sources
-compile against that API alone — `compile-subset.ps1 -Path src/main/java/org/ddlsmith/conformance` is
-the check.
+compile against that API alone — `mvn -Pextension-check process-classes` is the check: it compiles
+the core with the `conformance` package excluded, then compiles that package against the result.
 
 ### 4.5 False-positive guards
 

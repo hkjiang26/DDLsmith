@@ -23,7 +23,7 @@ import org.ddlsmith.oracle.TestOracle;
  * <p>Run with</p>
  *
  * <pre>
- * java -cp "target\oracle-classes;target\contract-classes;&lt;deps&gt;" org.ddlsmith.oracle.impl.OracleSelfCheck
+ * java -cp "target\oracle-classes;target\core-api-classes;&lt;deps&gt;" org.ddlsmith.oracle.impl.OracleSelfCheck
  * </pre>
  *
  * <p>Every {@code check...} method is public and throws {@link AssertionError} on failure, so the

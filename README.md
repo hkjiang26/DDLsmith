@@ -1,15 +1,28 @@
 # DDLsmith
 
-**Random graph → ER diagram → relational schema → DDL testing.**
+**Random base graph → random filling → ER diagram → relational schema → DDL testing.**
 
-DDLsmith generates complex random graphs, interprets them as ER diagrams (nodes are entities, edges
-are relationships), maps those diagrams to relational schemas with the classic ER-to-relational
-algorithm, and then tests whether real database engines implement the resulting DDL correctly.
+DDLsmith generates complex random *base* graphs (nodes and edges, and nothing else), fills each one
+with attributes at random — once per database — interprets the result as an ER diagram (nodes are
+entities, edges are relationships, the attributes are the attributes), maps those diagrams to
+relational schemas with the classic ER-to-relational algorithm, and then tests whether real database
+engines implement the resulting DDL correctly.
 
-It is inspired by [GDsmith](https://github.com/GAIA-UNSW/GDsmith), which tests *graph* database
-engines by generating random property graphs and Cypher queries. DDLsmith takes the same
-generation machinery and points it at a different target: instead of asking "does this engine
-answer Cypher queries correctly?", it asks **"does this engine's DDL mean what it says?"**
+Splitting the input in two is what makes the input space large: the topology is drawn once per group
+of databases and the filling is drawn per database, so **one base graph becomes many different ER
+diagrams** — tables with different attribute counts, different domains, different nullability,
+different keys and different specialization hierarchies — instead of exactly one.
+
+DDLsmith's core idea is that **a graph and an ER diagram are structurally the same object**. Because
+they are, a random graph is a source of ER diagrams and an ER diagram is a source of relational
+schemas — so the well-studied problem of *generating complex random graphs* can be repurposed to
+generate the complex relational schemas a DDL oracle needs as input.
+
+DDLsmith is **implemented on top of** [GDsmith](https://github.com/GAIA-UNSW/GDsmith), which tests
+*graph* database engines by generating random property graphs and Cypher queries. It inherits that
+project's generation machinery and its engineering idioms — seeded reproducibility, the
+provider/global-state split, `logs/` reproduction files, differential testing across engines — and
+points them at a different target, asking **"does this engine's DDL mean what it says?"**
 
 ---
 
@@ -37,20 +50,29 @@ The generation pipeline:
 
 ```
 ┌────────────────┐   ┌──────────────┐   ┌────────────┐   ┌──────────────────┐   ┌────────────────┐
-│ graph schema   │ → │ random graph │ → │ ER diagram │ → │ relational       │ → │ dialect-adapted│
-│ labels + rel.  │   │ nodes+edges  │   │ entities + │   │ schema (tables,  │   │ schema         │
-│ types + card.  │   │ + properties │   │ relations  │   │ keys, checks)    │   │ (DDL)          │
+│ base graph     │ → │ base graph   │ → │ filling    │ → │ ER diagram       │ → │ relational     │
+│ schema: labels │   │ instance:    │   │ attributes │   │ entities +       │   │ schema (tables,│
+│ + relationship │   │ nodes+edges  │   │ per label  │   │ relations +      │   │ keys, checks)  │
+│ types + card.  │   │ only         │   │ and type   │   │ keys + ISA       │   │                │
 └────────────────┘   └──────────────┘   └────────────┘   └──────────────────┘   └────────────────┘
-   1. schema gen        2. graph gen      3. ER mapping     4. relational map      5. adaptation
+   1. topology          2. instance       3. filling       4. ER mapping          5. relational map
+   (per group)          (per group)       (per database)   (per database)         (per database)
 ```
 
 Steps 2–4 are where the interesting structure comes from:
 
-* **Graph generation** uses six structurally different generators (`random`, `sliding`, `tree`,
+* **Base graph generation** uses six structurally different generators (`random`, `sliding`, `tree`,
   `preferential`, `smallworld`, `hybrid`). Because the graph's shape determines the shape of the
   schema, mixing generators produces genuinely different schemas: hub-heavy graphs give wide
   foreign-key fan-out, sliding-window graphs give locally dense clusters, trees give deep
-  hierarchical foreign keys.
+  hierarchical foreign keys. The graph itself carries no attributes at all.
+* **Filling** is what gives the graph its attributes, and it is drawn per database: a filling profile
+  (lean 0..3 attributes per label, normal 2..6, wide 5..12), a per-database domain pool (the common
+  SQL types plus `TIME`, `TIMESTAMPTZ`, `UUID`, `JSON`, `ENUM` and `ARRAY` when it draws them), a
+  mandatory share that decides how much of the schema is NOT NULL, the primary key and — with
+  probability 0.25 — an alternate key, and the inheritance plan. Because a specialization is nothing
+  but "this label's attributes are a strict superset of that label's", the same base graph is a
+  hierarchy in one database and a plain association in the next.
 * **ER mapping** turns graph structure into ER *features*: self-loops become recursive
   relationships, degree-1 nodes with no key become weak entities, a label whose attributes are a
   superset of another's becomes a subtype in a generalization hierarchy, a label that inherits from
@@ -63,37 +85,41 @@ Steps 2–4 are where the interesting structure comes from:
   deliberately out of scope — is [docs/ER-MODEL.md](docs/ER-MODEL.md).
 * **Relational mapping** applies the classic Elmasri/Navathe algorithm, with every well-known
   alternative randomized (foreign key vs. merged table vs. join table for 1:1; three strategies for
-  generalization hierarchies; natural vs. surrogate keys; and so on).
+  generalization hierarchies; natural vs. surrogate keys; alternate keys become `UNIQUE`
+  constraints; and so on).
 
-### One graph, several databases
+### One base graph, many databases
 
-The chain above is a sequence of independent random decisions: the graph schema, the graph instance,
-the ER interpretation of that instance, and the mapping decisions. `--databases-per-graph K` (default
-**8**) decouples the last two from the first two: the graph is generated once per group of K databases,
-and each database of the group re-draws only the ER interpretation and the mapping. One graph therefore
-becomes K databases — the same nodes and edges read as different ER diagrams (different features
-recognized, different keys chosen, a triangle read as a ternary relationship in one database and as an
-aggregation in the next) and mapped to different tables. This is where the input variety multiplies,
-and it is the reason the summary reports distinct ER diagrams and distinct schemas next to the number
-of databases.
+The chain above is a sequence of independent random decisions: the base graph schema, the base graph
+instance, the filling of that instance, the ER interpretation of the filled graph, and the mapping
+decisions. `--databases-per-graph K` (default **8**) decouples the last three from the first two: the
+base graph is generated once per group of K databases, and each database of the group draws its own
+filling, its own ER interpretation and its own mapping.
+
+One base graph therefore becomes K databases in the strongest sense the tool can offer: the same
+nodes and edges, filled with *different* attributes (a two-column table here, a twelve-column table
+there), keyed differently (a natural key here, a surrogate key with an alternate key there),
+specialized differently (a subtype hierarchy here, a plain 1:1 association there) and mapped
+differently (a foreign key here, a join table there). This is where the input variety multiplies, and
+it is the reason the summary reports distinct **fillings** next to distinct ER diagrams and distinct
+schemas.
 
 `--databases-per-graph 1` restores the historic behaviour (one graph per database). It is what to pass
-to regenerate a database recorded before this option existed: the seed names the graph and the slot
-names the interpretation, so with a group size above 1 the same seed produces the same graph but a
-different ER diagram. Databases recorded from now on carry both values, and a failure report says how
-to regenerate its database exactly.
+to regenerate a database recorded before this option existed: the seed names the base graph and the
+slot names the filling and the interpretation, so with a group size above 1 the same seed produces the
+same base graph but a different database. Databases recorded from now on carry both values, and a
+failure report says how to regenerate its database exactly.
 
-`--reroll-instance` additionally re-draws the graph *instance* for every database of the group, keeping
-only the graph schema fixed. That is what reaches the ER features the instance locks in: whether a
-label becomes a weak entity, whether it gets an identifying relationship and whether a recursive type
-becomes a multi-valued attribute are decided by the nodes and edges, not by a coin, so within one
-instance they are identical in every database.
+`--reroll-instance` additionally re-draws the base graph *instance* for every database of the group,
+keeping only the base graph schema fixed. That is what reaches the ER features the instance locks in:
+whether a label becomes a weak entity, whether it gets an identifying relationship and whether a
+recursive type becomes a multi-valued attribute are decided by the nodes and edges, not by a coin, so
+within one instance they are identical in every database.
 
-The seed names the graph and the slot names the interpretation. Both are recorded in failure reports,
-so one database of a group can be regenerated exactly with `--input-slot`. The measured effect at equal
-budget — 20 graphs instead of 500, with 79% of the ER variety and 100% of the schema variety — and the
-measured cost curve that fixes the default at 8 are in
-[docs/ACCEPTANCE-EXPANSION.md](docs/ACCEPTANCE-EXPANSION.md).
+The seed names the base graph and the slot names the filling and the interpretation. Both are
+recorded in failure reports, so one database of a group can be regenerated exactly with
+`--input-slot`. The measured effect at equal budget — 20 graphs instead of 500, with 79% of the ER
+variety and 100% of the schema variety — is what fixes the default at 8.
 
 ## 2. Why testing DDL is worth doing
 
@@ -141,11 +167,11 @@ of a hundred questions per database, computed from the graph rather than from a 
 rewritten query, plus a handful of **negative probes**: rows the schema forbids, which the engine has to
 refuse, and rows the standard allows, which it has to store. A refusal is only believed when it is an
 *integrity* refusal — a data exception means the probe's own row was invalid, and becomes a note
-instead of a finding. Its measured false-positive census (300 databases, about 6 000 semantic queries,
-0 findings on the embedded engines) and the gaps it announces rather than guesses are recorded in
-[docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md); the probes' own measurement is in
-§2.5 of that document, including the database where the old oracle asked 32 questions and reported
-nothing while the engine defect `bugs/mysql/005` was in front of it, and where it now reports it.
+instead of a finding. Its measured false-positive census is 300 databases and about 6 000 semantic
+queries with 0 findings on the embedded engines, and the gaps it cannot materialize are announced in
+the report rather than guessed. The negative probes were measured where they matter: on the database
+the engine defect `bugs/mysql/005` lives in, the old bank asked 32 questions and reported nothing,
+while the probes now ask 94 and report the defect.
 
 ## 4. Requirements
 
@@ -157,14 +183,36 @@ nothing while the engine defect `bugs/mysql/005` was in front of it, and where i
 ## 5. Build
 
 ```shell
-# Windows
-./build.ps1                 # runs: mvn clean package with JDK 17
-
-# any platform
 mvn clean package
 ```
 
 This produces `target/DDLsmith.jar`, a self-contained executable jar.
+
+The build needs **JDK 17 or newer**. If the `java` on your `PATH` (or `JAVA_HOME`) is older, point
+Maven at the right JDK for the command:
+
+```shell
+# Linux / macOS
+JAVA_HOME=/path/to/jdk-17 mvn clean package
+
+# Windows (PowerShell)
+$env:JAVA_HOME = 'C:\path\to\jdk-17'; mvn clean package
+```
+
+CI builds and tests on JDK 17 and 21.
+
+### Standalone self-checks and the extension check
+
+The `*SelfCheck` programs under `src/test` are plain `main` programs, so surefire does not run
+them. Two profiles exist for them:
+
+```shell
+# compile the whole main tree to target/core-api-classes and write target/cp.txt
+mvn -Pcore-api process-classes
+
+# verify that the graph-conformance extension compiles against the core API alone
+mvn -Pextension-check process-classes
+```
 
 ## 6. Quick start
 
@@ -254,8 +302,8 @@ java -jar target/DDLsmith.jar sqlite --random-seed 42 --num-tries 1
 | `--evolve-steps` | Number of random `ALTER TABLE` statements generated after schema creation. |
 | `--graph-generator` | `random`, `sliding`, `tree`, `preferential`, `smallworld`, `hybrid`, or `mix` (default). |
 | `--min-node-num`, `--max-node-num` | Size of the generated graph, i.e. the number of entities. |
-| `--databases-per-graph` | How many databases share one generated graph (default 8, minimum 1). Each database of the group re-draws the ER interpretation and the mapping decisions, so one graph becomes that many databases. 8 is where the measured cost curve turns (11% repeated ER diagrams at 8, 21% at 16 — [docs/ACCEPTANCE-EXPANSION.md](docs/ACCEPTANCE-EXPANSION.md) §5.1); pass 1 to regenerate databases recorded before this option existed. |
-| `--reroll-instance` | With `--databases-per-graph` > 1: re-generate the graph instance for every database of the group as well, keeping only the graph schema fixed. |
+| `--databases-per-graph` | How many databases share one generated **base graph** (default 8, minimum 1). Each database of the group draws its own **filling** of that graph (how many attributes every table gets, of which domain, which are NOT NULL and which form the keys) and its own ER interpretation and mapping, so one base graph becomes that many databases. 8 is where the measured cost curve turns (11% repeated ER diagrams at 8, 21% at 16); pass 1 to regenerate databases recorded before this option existed. |
+| `--reroll-instance` | With `--databases-per-graph` > 1: re-generate the base graph *instance* for every database of the group as well, keeping only the base graph schema fixed. |
 | `--input-slot` | Which database of a group to generate (default 0). Used to regenerate the exact input of one database. |
 | `--insert-rows` | Rows inserted per table before the data oracles run. |
 | `--max-constraint-probes` | Upper bound on constraint probes per database. |
@@ -322,18 +370,19 @@ java -jar target/DDLsmith.jar postgres --algorithm differential --compare-with p
 | H2 | embedded, always available | strict, standards-oriented DDL; 86 of 109 DDL features declared, each derived from an empirical probe |
 | DuckDB | embedded, always available | deliberately partial DDL support; 72 features declared, each derived from an empirical probe |
 | PostgreSQL | client/server | the richest DDL support (100 features); run against a live 18.6 server — eight server-only defects found and fixed; every generated database gets a schema of its own, so a 20-database run creates 20 schemas and no longer collides |
-| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B (see [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md)); three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 |
+| MySQL | client/server | different DDL syntax in many places (`DROP FOREIGN KEY`, `DROP INDEX ... ON`, `MODIFY COLUMN`, table options for comments); 74 features; run against a live 26.7.0 server — every generated database gets a database of its own; the catalog-readback normalisation tail has been cleared, confirmed by an 11-category census and a same-seed A/B; three defects have since been found in the foreign key path MySQL 9.6 introduced, none of them visible in the catalog — see §11 |
 
 ## 10. Verified results
 
 Everything below was measured on the committed code, not projected.
 
-**Unit and component tests — 357 tests, 0 failures** (`mvn test`):
+**Unit and component tests — 375 tests, 0 failures** (`mvn test`):
 
 | Suite | Tests | What it covers |
 | ----- | ----- | -------------- |
-| `GraphGenerationTest` | 20 | cardinality/participation validity for 6 generators × 200 seeds; property typing; ER mapper invariants; the EER features the mapper derives (ternary, aggregation, category, shared subclass, composite and partial keys, nested and multi-valued composites, specialization completeness) |
-| `MappingTest` | 27 | all 10 mapping-strategy enums in a full cartesian product; 300 random option sets; schema invariants; the enhanced constructs (shared subclass under every ISA strategy, category, aggregation, partial specialization, nested composites); a generated category row satisfies its own union-membership check |
+| `GraphGenerationTest` | 21 | cardinality/participation validity for 6 generators × 200 seeds; base-graph shape (no attributes) and filling shape (domain of a key attribute, presence values, inheritance plan); property typing; ER mapper invariants; the EER features the mapper derives (ternary, aggregation, category, shared subclass, composite and partial keys, nested and multi-valued composites, specialization completeness) |
+| `FillingTest` | 5 | the filling stage: reproducibility from its stream, one base graph filled differently per slot, every profile and extra domain reached, the inheritance plan (acyclic, ≤3 levels, strict superset per link), and a declared alternate key becoming a `UNIQUE` constraint end to end |
+| `MappingTest` | 30 | all 10 mapping-strategy enums in a full cartesian product; 300 random option sets; schema invariants; the enhanced constructs (shared subclass under every ISA strategy, category, aggregation, partial specialization, nested composites); a generated category row satisfies its own union-membership check; alternate keys under every key strategy, including a redundant one on the key columns |
 | `SqliteDialectTest` / `H2DialectTest` / `DuckDbDialectTest` | 15 / 20 / 29 | type round trips, schema round trips, feature probes, ALTER round trips |
 | `PostgresDialectTest` / `MySqlDialectTest` | 27 / 32 | exact-SQL rendering assertions and type round trips (no live server) |
 | `SchemaOracleTest` / `ConstraintOracleTest` | 21 / 10 | each oracle in both directions against real in-memory SQLite and H2; the referential-action probes skip a parent key that is itself a foreign key column (MySQL 1452) |
@@ -357,11 +406,19 @@ engines with **0 differences**.
 **The enhanced ER layer — measured on this build, not projected.** The feature catalogue it
 implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
 
-* `mvn test` — **357 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
-  type, shared subclass, composite keys, nested composites, specialization completeness) and the
-  category union-membership check a generated row has to satisfy;
+* `mvn test` — **375 tests, 0 failures**, including the new EER cases (ternary, aggregation, union
+  type, shared subclass, composite keys, nested composites, specialization completeness), the
+  category union-membership check a generated row has to satisfy, and the filling stage's own tests;
 * the graph self-check — **1 200 diagrams** (6 generators × 200 seeds) plus a 720-diagram option
   matrix, **0 invariant failures**, and every EER feature observed;
+* the filling round — one base graph filled differently per database (**200 databases produced 200
+  distinct fillings** on each of SQLite, H2 and DuckDB, and on the differential run), the attribute
+  count spanning 0..12 per label, `TIME`/`TIMESTAMPTZ`/`UUID`/`JSON`/`ENUM`/`ARRAY` reaching the ER
+  attributes, alternate keys mapping to `UNIQUE`, and **no feature rarer than 62% of its previous
+  rate** (four became more reachable: weak entities 2.8×, shared subclasses 2.3×, ternary
+  relationships 1.9×, multi-valued attributes 1.2×), including the first multi-level generalization
+  hierarchies the generator has ever produced — and eight latent generator defects the new inputs
+  exposed, each fixed with its own probe or test;
 * the mapping self-check — **55 212 mappings** over 10 368 strategy combinations and 9 diagram
   families, **0 invariant violations**;
 * SQLite, H2 and DuckDB — **150 databases each** with the default oracle set: **0 findings**;
@@ -373,15 +430,14 @@ implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
 * `--print-ddl-only` — 20 seeds × 5 dialects, each printed twice: **200 renderings, 0 differences
   between the two printings**, and every new construct present in the sample.
 
-**Full tool runs:** two acceptance sessions ran nine categories for half an hour or an hour each
-(raw numbers in [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) and [docs/ACCEPTANCE-2.md](docs/ACCEPTANCE-2.md)):
+**Full tool runs:** two acceptance sessions ran nine categories for half an hour or an hour each:
 
 * the second session ran the nine categories twice, 30 minutes each, on identical seed ranges, so the
   second round is a seed-for-seed A/B check of the first round's fixes: **648 failures on 48 891
   databases became 2 on 42 938**, and both survivors are engine behaviour rather than tool defects
   (SQLite evaluating a sibling `CASCADE` before `RESTRICT`; DuckDB refusing a row that references
   itself). Every one of the 422 failure logs of the first round was a DDLsmith defect, and all were
-  fixed and re-verified at their own seeds (23 of 23 re-runs clean);
+  fixed and re-verified at their own seeds (32 of 32 targeted re-runs clean);
 * SQLite 3 533 / H2 38 000 / DuckDB 3 576 databases — **0 failures** with the default oracle set;
 * differential SQLite/H2/DuckDB 1 522 databases — **0 failures**;
 * `--print-ddl-only` 1 069 iterations over five dialects × six graph generators, each printed twice —
@@ -402,8 +458,7 @@ implements is [docs/ER-MODEL.md](docs/ER-MODEL.md):
   `graph-conformance`, latest MySQL image): **3 506 databases, ≥ 183 000 statements, 13 failures in 4
   distinct classes** — one MySQL defect in the SQL-engine foreign key path (`bugs/mysql/005`, a foreign
   key is not checked when a column of the index enforcing it is NULL) and three DDLsmith false-positive
-  classes, since fixed and re-measured one database at a time against the pre-fix build; the
-  measurements are recorded in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md) §3.
+  classes, since fixed and re-measured one database at a time against the pre-fix build.
 
 ## 11. Findings about the engines
 
@@ -558,7 +613,7 @@ relevant module's self-check:
   to violate a constraint* finds them — which is why the twelve-hour bug-hunting campaign of 2026-10-06
   gave the `constraint-enforcement` family three of its ten categories and ran the same seed blocks
   against both foreign key paths of one server version, so that a disagreement between them needs no
-  cross-version confound. See [docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md).
+  cross-version confound.
 * **MySQL compares strings its own way unless it is told otherwise, and DDLsmith now tells it.** The
   server default (`utf8mb4_0900_ai_ci`) is case- and accent-insensitive, so a `UNIQUE` column accepted
   `'HF'` and then refused `'hf'`, `CHECK (a <> 'x')` refused `'X'`, and `ENUM('a','A')` was refused at
@@ -567,10 +622,18 @@ relevant module's self-check:
   (`Dialect.getStringCollation`, applied by `SchemaAdapter`): code-point ordered and `NO PAD`, which is
   exactly Java's `String.equals`, and available from MySQL 8.0.17. That comparison mismatch produced
   five of the thirteen findings of the two-hour conformance experiment, all of them DDLsmith's own; the
-  fix, the two other false-positive classes it was found with, and their measurement one database at a
-  time are recorded in [docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md) §3 (defect 10).
+  fix and the two other false-positive classes it was found with were each re-measured one database at
+  a time at the failing database's own seed against the pre-fix build.
 * **DuckDB does not preserve character lengths or numeric precision**: `VARCHAR(3)` is stored and
   reported as `VARCHAR`, so its schema comparison falls back to type categories.
+* **DuckDB 1.3.0 cannot index an `ARRAY` column, in any form.** A plain `CREATE INDEX`, a `UNIQUE`
+  constraint and a `PRIMARY KEY` over an array column are all refused with
+  `Invalid type Error: Invalid Type [DATE[]]: Invalid type for index key.` — while H2 2.3.232 accepts
+  all three on `DATE ARRAY`. DDLsmith therefore declares the type unindexable for DuckDB
+  (`EngineTraits.canIndex`), which makes the adapter strip such columns from indexes and substitute an
+  indexable type on a key column instead of generating a statement the engine must reject. The two
+  probes are reproducible with the scratch programs described in the finding's commit; the trait table
+  for H2 (`ARRAY` and `JSON` indexable, `BLOB`/`TEXT` not) was measured the same way.
 
 ## 12. Status and limitations
 
@@ -588,16 +651,23 @@ relationship, overlapping specialization in a single table, completeness in the 
 strategies, weak entities with several owners).
 
 [docs/ER-GAPS.md](docs/ER-GAPS.md) is the audit of what the ER layer still **cannot** do, and it is
-the honest counterweight to the paragraph above. The catalogue overstates the generator in two
-places: **multi-level generalization hierarchies** and **weak-entity ownership chains** are listed as
-reachable and are not — the graph schema generator only ever lets a *root* label be a parent, so the
-hierarchy depth is always exactly 1, and the weak-entity heuristic requires the dependent to be the
-only relationship type incident to the label, which the owner can never be.
+the honest counterweight to the paragraph above. The catalogue used to overstate the generator in two
+places: **multi-level generalization hierarchies** and **weak-entity ownership chains** were listed as
+reachable and were not. The first is now reachable — the filling may let a parent be a child of
+another label, and the 1 200-diagram census produces 22 subtypes deeper than one level — while the
+ownership chain is still open (the weak-entity heuristic requires the dependent to be the only
+relationship type incident to the label, which the owner can never be).
+
+The audit's **attribute-level gaps are closed** by the filling round: an entity can now carry
+**several candidate keys** (one alternate key is mapped to a `UNIQUE` constraint, ER-GAPS A17), and
+the ER attribute domains reach `TIME`, `TIMESTAMPTZ`, `UUID`, `JSON`, `ENUM` and `ARRAY` instead of
+the twelve common types alone (A20) — 7 421 of the 49 046 attribute slots of the census carry one of
+the extra domains.
 
 Four of the audit's defects have since been **fixed**, and each is guarded by a test:
 
-* **Attribute inheritance is implicit, not duplicated.** The schema generator models inheritance by
-  copying the parent's property slots into the child label, so every subtype used to re-declare its
+* **Attribute inheritance is implicit, not duplicated.** The filling models inheritance by copying
+  the parent's attribute slots into the child label, so every subtype used to re-declare its
   supertype's attributes and the single-table ISA mapping emitted `a0` *and* `a0_2` for one logical
   attribute — in 100 % of the hierarchies the pipeline produced. A subtype now keeps only the
   attributes it adds (`DefaultGraphToERMapper.removeInheritedAttributes`), and
@@ -632,7 +702,7 @@ a column named by a `CHECK` constraint is no longer dropped, a `DECIMAL` is no l
 what the engine accepts, and the metamorphic relation no longer picks an action whose inverse the
 engine cannot express. It then ran **955 databases across SQLite, H2 and DuckDB with 0 failures**,
 twice, on identical seeds — so a finding from it can now be read as a finding rather than reviewed
-first. See [docs/ACCEPTANCE-2.md](docs/ACCEPTANCE-2.md).
+first.
 
 One area is still **experimental** and off by default:
 
@@ -656,7 +726,7 @@ One area is still **experimental** and off by default:
   generator's, so a green run is a strong signal rather than a proof.
 
 PostgreSQL and MySQL have **now been run against a live server** (PostgreSQL 18.6, MySQL 26.7.0, in
-disposable containers — see [docs/ACCEPTANCE-2.md](docs/ACCEPTANCE-2.md) §8.1). The first live run
+disposable containers). The first live run
 failed on its very first `CREATE TABLE`, and the survey that followed failed on nearly every database
 of both engines: eight defects were reachable only through a server, and none of them through an
 embedded engine. They are fixed.
@@ -690,25 +760,24 @@ two are a **documented MySQL deviation** (self-referencing `ON UPDATE CASCADE` a
 now filed as `bugs/mysql/001`) and the third was a DDLsmith defect in how a key tuple containing a
 temporal column was compared — the model's `java.sql.Timestamp` and the driver's
 `java.time.LocalDateTime` were being compared as text. That one is fixed, with a regression test, and
-the two remaining findings now carry the engine's own words. See
-[docs/ACCEPTANCE-MYSQL.md](docs/ACCEPTANCE-MYSQL.md), which records every claim with its bare-SQL
-evidence and lists what is *not* verified.
+the two remaining findings now carry the engine's own words.
 
 **The first extension oracle — `graph-conformance` — is attached through the plugin seam, not
 through the core.** It is deliberately *not* in the default oracle set (it inserts a whole instance,
 so it costs more than the default three) and it is *not* registered in `Oracles.FACTORIES`: a class
 in `org.ddlsmith.conformance` plus a line in `META-INF/services/org.ddlsmith.oracle.TestOracle` is
 the whole wiring, and the registry discovers it with `ServiceLoader` when it is first used. The
-sources compile against the core API alone (`compile-subset.ps1` verifies it), so the same file can
-be rebuilt or replaced without touching the oracle layer. It declines `--evolve-steps` runs, in which
+sources compile against the core API alone (`mvn -Pextension-check process-classes` verifies it, by
+compiling the core without the `conformance` package and then compiling that package against the
+result), so the same file can be rebuilt or replaced without touching the oracle layer. It declines
+`--evolve-steps` runs, in which
 the schema under test is no longer the mapped schema, and it removes the rows it inserted before the
 next oracle runs, so the differential algorithm's "still empty after the oracles" post-condition is
 untouched. Measured on the committed build: **300 databases and about 6 000 semantic queries across
 SQLite, H2 and DuckDB with 0 findings**, plus 20 differential databases with the oracle running on
 both engines; what it cannot materialize (aggregations, reference cycles with mandatory foreign keys,
-cycles among self-references) it announces in the report instead of guessing — the census, the gaps
-and the nine defects of the oracle's own construction that the measurements found are in
-[docs/ACCEPTANCE-CONFORMANCE.md](docs/ACCEPTANCE-CONFORMANCE.md).
+cycles among self-references) it announces in the report instead of guessing, and nine defects of the
+oracle's own construction that the measurements exposed were each fixed and re-measured.
 
 ## 13. Project layout
 
@@ -717,8 +786,8 @@ src/main/java/org/ddlsmith/
 ├── Randomly.java                 seeded RNG; every random decision flows through it
 ├── Main.java, MainOptions.java   CLI, thread management, failure logging
 ├── GlobalState.java              per-thread state: connection, generated input, execution log
-├── graph/                        GraphModel, GraphSchema, generators, Graph→ER mapping
-│   └── gen/                      the six graph generators, ER mapper, ER printer
+├── graph/                        GraphModel, GraphSchema, GraphFilling, generators, Graph→ER mapping
+│   └── gen/                      the six graph generators, RandomGraphFiller, ER mapper, ER printer
 ├── ermodel/                      ER diagram: entities, relationships, cardinality, participation,
 │                                 weak entities, generalization lattices, categories, aggregation
 ├── mapping/                      ER → relational mapping (Elmasri/Navathe, randomized)
@@ -726,24 +795,23 @@ src/main/java/org/ddlsmith/
 ├── common/schema/                the relational IR: tables, columns, keys, checks, indexes, views
 ├── ddl/                          dialect-independent DDL AST
 │   ├── alter/                    ALTER TABLE actions, each with its inverse
-│   ├── dialects/                 per-engine rendering
 │   └── gen/                      schema adaptation, creation script, randomized DDL, feature analysis
-├── introspection/                catalog reading and schema comparison
-│   └── impl/                     per-engine introspectors + SchemaNormalizer
+├── introspection/                catalog reading and schema comparison (SchemaNormalizer)
 ├── data/                         row generation and the in-memory data model
 ├── oracle/                       oracle contract, context, failure reports
 │   └── impl/                     the nine built-in oracles
 ├── conformance/                  the graph-conformance extension oracle (materializer, query bank)
 ├── algorithm/                    generation pipeline and testing algorithms
-└── dbms/                         providers, dialects/introspectors registries, configuration
+└── dbms/                         providers, registries, configuration, and one package per engine
+    └── sqlite|h2|duckdb|postgres|mysql/   that engine's Dialect, Introspector and TypeMapper
 
 docs/                             DESIGN.md (the pipeline), ER-MODEL.md (the ER feature reference),
-                                  ACCEPTANCE*.md (measured runs)
+                                  ER-GAPS.md (what it cannot reach), the ER/EER catalogue and the
+                                  standalone probes under er_features/probes/
 ```
 
-The campaign evidence trees — `runs/` (the harness and each round's scratch), `bugs/` (the filed
-defect reports) and `logs/` (the failure logs) — are produced by a run rather than shipped with the
-repository; the reports under `docs/` quote the paths where that evidence lived.
+The run output — `logs/` (the failure logs) and `bugs/` (the filed defect reports) — is produced by a
+run rather than shipped with the repository: a run regenerates it from a seed.
 
 ## 14. Adding an engine
 
@@ -762,22 +830,33 @@ documentation — the engine modules' self-checks do exactly that.
 
 ## 15. Relationship to GDsmith
 
-| GDsmith | DDLsmith |
+DDLsmith was built on GDsmith's codebase, and the debt is structural: the provider/global-state
+split, the seeded `Randomly`, the `logs/<dbms>/<db>.log` reproduction files and the habit of testing
+by differential comparison all come from there. What is DDLsmith's own is the **pipeline** — reading a
+random graph as an ER diagram, and an ER diagram as a relational schema — and everything downstream
+of it.
+
+| GDsmith (the base) | DDLsmith (what was built on it) |
 | ------- | -------- |
-| generates property graphs | generates property graphs (same idea, six generators) |
+| generates property graphs | generates property graphs (same machinery, six generators) |
 | extracts regions and patterns from the graph | interprets the graph as an ER diagram |
 | generates Cypher queries guided by the patterns | maps the ER diagram to relational DDL |
 | differential oracle across graph engines | differential oracle across relational engines |
 | crash oracle, non-empty-result oracle | crash, round-trip, constraint, referential-action, metamorphic and data oracles |
 | `logs/<dbms>/<db>.log` reproduction logs | same, plus `--reproduce` to replay them |
 
-The key difference is the target: GDsmith tests *query* evaluation, DDLsmith tests *schema*
-semantics. DDLsmith also keeps GDsmith's guiding principle that generated inputs should be
-*complex* — because the interesting engine defects live at the boundary between the cases an engine
-handles routinely and the cases it does not.
+The difference is the target: GDsmith tests *query* evaluation, DDLsmith tests *schema* semantics.
+Both keep the same guiding principle — generated inputs should be *complex*, because the interesting
+engine defects live at the boundary between the cases an engine handles routinely and the cases it
+does not.
 
 ## 16. License and provenance
 
-DDLsmith is a research tool. Its architecture and several of its idioms (seeded `Randomly`,
-provider/global-state split, `logs/` reproduction files, differential testing across engines) follow
-GDsmith/SQLancer.
+DDLsmith is a research tool, released under the [MIT License](LICENSE).
+
+It is built on [GDsmith](https://github.com/GAIA-UNSW/GDsmith) (which in turn follows
+[SQLancer](https://github.com/sqlancer/sqlancer)), and it carries over that lineage's architecture and
+several of its idioms: the seeded `Randomly`, the provider/global-state split, `logs/` reproduction
+files, and differential testing across engines. The graph → ER → relational pipeline, the ER layer,
+the dialects and introspectors, the oracles, and the graph-conformance extension are DDLsmith's own.
+

@@ -11,6 +11,28 @@
 
   <name>DDLsmith</name>
   <description>Random graph -> ER diagram -> relational DDL testing</description>
+  <url>https://github.com/hkjiang26/DDLsmith</url>
+
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>hkjiang26</id>
+      <name>Haikuo Jiang</name>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/hkjiang26/DDLsmith.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/hkjiang26/DDLsmith.git</developerConnection>
+    <url>https://github.com/hkjiang26/DDLsmith</url>
+  </scm>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
@@ -151,4 +173,153 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+
+    <!--
+      Compiles the whole main tree into target/core-api-classes and writes the dependency
+      classpath to target/cp.txt.
+
+      This is for the standalone self-check programs (the *SelfCheck classes under src/test),
+      which are plain `main` programs rather than JUnit tests and are therefore not run by
+      surefire. They need a compiled classpath, which is exactly what this profile emits:
+
+        mvn -Pcore-api process-classes
+        javac -encoding UTF-8 -cp "target/core-api-classes<sep>$(cat target/cp.txt)" \
+              -d target/h2-classes src/main/java/org/ddlsmith/dbms/h2/*.java
+        java -cp "target/h2-classes<sep>target/core-api-classes<sep>$(cat target/cp.txt)" \
+              org.ddlsmith.dbms.h2.SelfCheck
+
+      (<sep> is ; on Windows and : elsewhere.)
+    -->
+    <profile>
+      <id>core-api</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <version>3.6.1</version>
+            <executions>
+              <execution>
+                <id>write-dependency-classpath</id>
+                <phase>process-classes</phase>
+                <goals>
+                  <goal>build-classpath</goal>
+                </goals>
+                <configuration>
+                  <outputFile>${project.build.directory}/cp.txt</outputFile>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>compile-core-api</id>
+                <phase>process-classes</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <property name="core.dir" value="${project.build.directory}/core-api-classes"/>
+                    <loadfile property="dep.cp" srcFile="${project.build.directory}/cp.txt"/>
+                    <delete dir="${core.dir}"/>
+                    <mkdir dir="${core.dir}"/>
+                    <javac srcdir="${project.basedir}/src/main/java" destdir="${core.dir}"
+                           classpath="${dep.cp}" release="17" encoding="UTF-8"
+                           nowarn="true" includeantruntime="false" fork="true"/>
+                    <echo message="core API compiled to ${core.dir}; dependency classpath in ${project.build.directory}/cp.txt"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      Verifies that the graph-conformance extension oracle compiles against the core API
+      alone. The main tree is first compiled with org/ddlsmith/conformance excluded, and the
+      extension is then compiled against that core-only classpath (with no sourcepath, so a
+      reference cannot be satisfied by recompiling a sibling source file).
+
+      This is what backs the claim in README section 12: the extension plugs in through
+      META-INF/services and the core API, not through an edit to the oracle layer.
+
+        mvn -Pextension-check process-classes
+    -->
+    <profile>
+      <id>extension-check</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <version>3.6.1</version>
+            <executions>
+              <execution>
+                <id>write-dependency-classpath</id>
+                <phase>process-classes</phase>
+                <goals>
+                  <goal>build-classpath</goal>
+                </goals>
+                <configuration>
+                  <outputFile>${project.build.directory}/cp.txt</outputFile>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>compile-extension-against-core-api</id>
+                <phase>process-classes</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <property name="core.dir" value="${project.build.directory}/core-api-classes"/>
+                    <property name="ext.dir" value="${project.build.directory}/extension-classes"/>
+                    <loadfile property="dep.cp" srcFile="${project.build.directory}/cp.txt"/>
+                    <delete dir="${core.dir}"/>
+                    <delete dir="${ext.dir}"/>
+                    <mkdir dir="${core.dir}"/>
+                    <mkdir dir="${ext.dir}"/>
+
+                    <!-- 1. the core, without the extension -->
+                    <javac srcdir="${project.basedir}/src/main/java" destdir="${core.dir}"
+                           classpath="${dep.cp}" release="17" encoding="UTF-8"
+                           nowarn="true" includeantruntime="false" fork="true">
+                      <exclude name="org/ddlsmith/conformance/**"/>
+                    </javac>
+
+                    <!-- 2. the extension, against that core only (sourcepath is the class-only dir) -->
+                    <javac srcdir="${project.basedir}/src/main/java" destdir="${ext.dir}"
+                           sourcepath="${core.dir}"
+                           classpath="${core.dir}${path.separator}${dep.cp}"
+                           release="17" encoding="UTF-8"
+                           nowarn="true" includeantruntime="false" fork="true">
+                      <include name="org/ddlsmith/conformance/**"/>
+                    </javac>
+                    <echo message="extension oracle compiled against the core API alone: ${ext.dir}"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+  </profiles>
 </project>

@@ -46,7 +46,7 @@ import org.ddlsmith.mapping.MappingTrace;
  * invariant is violated.</p>
  *
  * <pre>
- * java -cp "target\map-classes;target\contract-classes;&lt;deps&gt;" org.ddlsmith.mapping.impl.SelfCheck
+ * java -cp "target\map-classes;target\core-api-classes;&lt;deps&gt;" org.ddlsmith.mapping.impl.SelfCheck
  * </pre>
  */
 public final class SelfCheck {

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test (JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      # Every test runs against the embedded engines (SQLite, H2, DuckDB), so no
+      # database service, container or network access is needed.
+      - name: Build and run the test suite
+        run: mvn -B --no-transfer-progress clean verify
+        env:
+          MAVEN_OPTS: -Dfile.encoding=UTF-8
+
+      # The extension oracle must compile against the core API alone; this
+      # compiles the core without org.ddlsmith.conformance and then compiles
+      # that package against the result.
+      - name: Check the extension oracle against the core API
+        run: mvn -B --no-transfer-progress -Pextension-check process-classes
+        env:
+          MAVEN_OPTS: -Dfile.encoding=UTF-8
+
+      - name: Smoke-test the shaded jar
+        run: |
+          java -jar target/DDLsmith.jar sqlite --print-ddl-only --random-seed 42 \
+            --databases-per-graph 1 --num-tries 1 > /dev/null
+          java -jar target/DDLsmith.jar h2 --num-tries 5 --num-ddl 20
+
+      - name: Upload the executable jar
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DDLsmith-jar
+          path: target/DDLsmith.jar
+          if-no-files-found: error
+          retention-days: 14

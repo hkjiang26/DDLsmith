@@ -20,7 +20,7 @@ that real designers write). **layer**: where the missing work is.
 
 | # | Gap | Layer | Severity | Reachable today |
 | - | --- | ----- | -------- | --------------- |
-| **A1** | Multi-level generalization hierarchies (depth ≥ 2) | graph schema generator | **high** | never (0 / 1 800) |
+| **A1** | Multi-level generalization hierarchies (depth ≥ 2) | graph schema generator | **high** | ✅ **fixed** — the filling's inheritance plan may nest (741 at depth 2, 22 at depth 3 per 1 200 diagrams) |
 | **A2** | Weak entity that also participates in other relationships | ER mapper heuristic | **high** | never (0 / 48) |
 | **A3** | Weak-entity ownership chain (owner is itself weak) | graph schema generator | medium | never |
 | **A4** | n-ary relationship of degree ≥ 4 | ER mapper synthesis | medium | never (max degree 3) |
@@ -36,10 +36,10 @@ that real designers write). **layer**: where the missing work is.
 | **A14** | Subtype with 3+ supertypes | graph schema generator | low | never (max 2) |
 | **A15** | Role names on non-recursive relationships | ER mapper construction | low | never |
 | **A16** | Composite / multi-valued / derived **relationship** attributes | ER mapper construction (+ mapper drop) | **high** | never |
-| **A17** | Several candidate keys per entity (alternate keys) | **ER model** | **high** | impossible to express |
+| **A17** | Several candidate keys per entity (alternate keys) | **ER model** | **high** | ✅ **fixed** — the filling declares an alternate key, mapped to `UNIQUE` (944 per 1 200 diagrams) |
 | **A18** | Weak entity with several owners | **ER model** | low | impossible to express |
 | **A19** | Partial key with 3+ attributes | ER mapper heuristic | low | never (max 2) |
-| **A20** | Attribute domain coverage (ENUM/ARRAY/JSON/UUID/…) | graph schema generator | medium | 12 of 20 types |
+| **A20** | Attribute domain coverage (ENUM/ARRAY/JSON/UUID/…) | graph schema generator | medium | ✅ **fixed** — a per-database domain pool reaches 18 of the 20 categories (7 421 attribute slots carry an extra domain) |
 | **A21** | Subset constraints, exclusion constraints, composition, predicate-defined specialization, ordered relationships, defaults | **ER model** | medium | impossible to express |
 | **A22** | ISA strategy is per run, not per specialization (the textbook's mixed lattice) | mapper + options | medium | never |
 | **A23** | Category surrogate key is unconditional (the standard needs one only when the superclasses' keys differ) | mapper | low | never |
@@ -87,6 +87,13 @@ the four defects it was built to expose are down to two. Verified by the full te
 ## 1. Features the random pipeline can never produce
 
 ### A1 — Multi-level generalization hierarchies (severity: high)
+
+> **Status: fixed** by the filling round (2026-10-17). The inheritance plan is drawn by
+> `RandomGraphFiller`: a parent may itself be a child, the plan is capped at the three levels the
+> mapper recognises, and it is checked for cycles and for two parents of one child being ISA-related.
+> Measured over the standard 1 200-diagram battery: **741 subtypes at depth 2 and 22 at depth 3**,
+> where the pre-filling build produced depth 1 only.
+> The analysis below is kept as the record of what the defect was.
 
 **Claimed:** `ER-MODEL.md` §1.4 lists "Multi-level hierarchy — a subtype of a subtype — yes, up to 3
 levels (`MAX_ISA_DEPTH`)". `README.md` §12 claims "multi-level generalization lattices" are
@@ -431,6 +438,15 @@ mapping is a table keyed by the relationship's participants plus the value — t
 
 ### A17 — Several candidate keys per entity (severity: high, ER-model gap)
 
+> **Status: fixed** by the filling round (2026-10-17). `GraphProperty` carries a `KeyRole`
+> (`PRIMARY` / `ALTERNATE`), the filling marks one or two further mandatory attributes as an
+> alternate key with probability 0.25, `ERAttribute`/`EREntity` expose it, and
+> `StandardERToRelationalMapper.emitAlternateKeys` maps it to a `UNIQUE` constraint next to the
+> primary key — under every `KeyStrategy`. Measured over the standard battery: **944 alternate keys**
+> where the pre-filling build could not express one;
+> `MappingTest.alternateKeysBecomeUniqueConstraints` pins it. The analysis below is kept as the record
+> of what the defect was.
+
 **Actual:** the ER model can express **one** key per entity.
 
 *Evidence (code).* `ERAttribute` has a single boolean `primaryKey` (line 19) and `EREntity` derives
@@ -470,6 +486,17 @@ most two attributes. Empirically: 42 weak entities, 62 partial-key attributes, m
 ---
 
 ### A20 — Attribute domain coverage (severity: medium)
+
+> **Status: fixed** by the filling round (2026-10-17). The filling draws a **per-database domain
+> pool**: the twelve common types plus, each with its own probability, `TIME`, `TIMESTAMPTZ`,
+> `UUID`, `JSON`, an `ENUM` and an `ARRAY` type. Measured over the standard battery: **7 421 of the
+> 49 046 attribute slots (15 %)** carry one of the extra domains. Key attributes are deliberately
+> restricted to the indexable, comparable domains (a key column is indexed by the engine, and an
+> `ARRAY`/`JSON`/`ENUM` key would be rewritten by the adapter, after which the graph value would no
+> longer fit the column the engine really created). Only `REAL`, `BLOB` and `INTERVAL` are still never
+> drawn: `REAL` is not in `DataType.commonTypes()`, and `BLOB`/`INTERVAL` have no value generator in
+> `GraphPropertyFiller` that every dialect could render. The analysis below is kept as the record of
+> what the gap was.
 
 *Evidence (code).* `RandomGraphSchemaGenerator.randomType()` draws from `DataType.commonTypes()`:
 

@@ -21,8 +21,8 @@ import org.ddlsmith.oracle.impl.SchemaPrinter;
  * what each group size reaches: distinct graph schemas, distinct ER diagrams, distinct coarse ER
  * feature vectors ("what kind of ER diagram"), and distinct relational schemas. The row for a group
  * size is what a run of that budget would produce if every database were generated with it, so the
- * table answers "what does K cost and what does it buy" directly. The numbers behind
- * {@code docs/ACCEPTANCE-EXPANSION.md} §5.1 come from this probe.</p>
+ * table answers "what does K cost and what does it buy" directly, and it is what fixed the default
+ * group size at 8.</p>
  *
  * <p>Usage: {@code KProbe [budget] [k1,k2,...] [--reroll-instance]}</p>
  */

@@ -65,7 +65,7 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  *
  * <p>Run with the DuckDB JDBC driver on the classpath, e.g.</p>
  * <pre>
- * java -cp "target\duckdb-classes;target\contract-classes;$(cat target/cp.txt)" \
+ * java -cp "target\duckdb-classes;target\core-api-classes;$(cat target/cp.txt)" \
  *      org.ddlsmith.dbms.duckdb.SelfCheck
  * </pre>
  */
@@ -557,7 +557,7 @@ public final class SelfCheck {
             DDLFeature fkTargetMustExist = featureByName("FK_TARGET_MUST_EXIST");
             if (fkTargetMustExist == null) {
                 System.out.println("FEATURE FK_TARGET_MUST_EXIST: not present in the compiled contract "
-                        + "(target/contract-classes predates the constant); probe still run below");
+                        + "(target/core-api-classes predates the constant); probe still run below");
             }
             observations.add(probe("FK target table must exist at CREATE TABLE time", fkTargetMustExist, ctx, c -> {
                 String s = c.newSchema();
@@ -1478,7 +1478,7 @@ public final class SelfCheck {
 
     /**
      * Looks a {@link DDLFeature} up by name. The compiled contract this harness is built against
-     * ({@code target/contract-classes}) is only refreshed when the core is rebuilt, so a constant
+     * ({@code target/core-api-classes}) is only refreshed when the core is rebuilt, so a constant
      * that exists in {@code DDLFeature.java} may still be missing from the artifact; looking it up
      * by name lets the same source compile and run against either version.
      *

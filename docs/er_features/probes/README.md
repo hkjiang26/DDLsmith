@@ -1,20 +1,20 @@
 # ER feature probes
 
-Nine standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
-actually reaches, which it silently loses, and how much input variety a database buys. They are the
-evidence behind [../../ER-GAPS.md](../../ER-GAPS.md),
-[../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) and
-[../../ACCEPTANCE-EXPANSION.md](../../ACCEPTANCE-EXPANSION.md); they
+Ten standalone programs that measure which ER/EER features the **graph → ER → relational** pipeline
+actually reaches, which it silently loses, how much input variety a database buys, and which column
+types the engines really index. They are the evidence behind [../../ER-GAPS.md](../../ER-GAPS.md) and
+[../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md); they
 are deliberately **not** part of the Maven build, so they can be read and run without touching the
 test suite.
 
-They are plain `main` programs with no test-runner dependency. They use the compiled main classes and
-the public API only (`Randomly`, `graph.gen.*`, `ermodel.*`, `mapping.impl.*`).
+They are plain `main` programs with no test-runner dependency. The ER probes use the compiled main
+classes and the public API only (`Randomly`, `graph.gen.*`, `ermodel.*`, `mapping.impl.*`);
+`EngineTypeProbe` talks to the embedded engines through JDBC and therefore needs the shaded jar.
 
 ## Build
 
 ```
-mvn -q compile            # or: ./build.ps1 -MavenArgs compile
+mvn -q compile
 ```
 
 ## Compile
@@ -38,6 +38,13 @@ E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" KProbe 1024 1,2,4,
 E:\Java\jdk-17\bin\java.exe -cp "target\classes;target\probe" KProbe 1024 1,4,8,16 --reroll-instance
 ```
 
+`EngineTypeProbe` needs the drivers, so it is compiled and run against the shaded jar instead:
+
+```
+E:\Java\jdk-17\bin\javac.exe -nowarn -encoding UTF-8 -cp target\DDLsmith.jar -d target\probe2 docs\er_features\probes\EngineTypeProbe.java
+E:\Java\jdk-17\bin\java.exe -cp "target\DDLsmith.jar;target\probe2" EngineTypeProbe
+```
+
 The first argument of the counting probes is the number of seeds per graph generator (6 generators,
 so `200` means 1 200 diagrams). `ErConstructProbe` ignores it and runs ten hand-built diagrams;
 `ErOneSeedDump` takes a generator name and a seed; `ErMappingShapeProbe` ignores it and runs twenty-one
@@ -56,7 +63,8 @@ the number of pipeline runs and an optional seed base.
 | `ErOneSeedDump` | What does one concrete seed's ER diagram look like next to its three ISA mappings? | the worked example in B7 |
 | `ErMappingShapeProbe` | For the ER constructs the random pipeline reaches only rarely (or never), what does the mapper produce — and what does the merged table look like as DDL? | §2.1–§2.14 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
 | `ErMergeProbe` | What does the 1:1 `MERGE_TABLES` strategy cost across the real pipeline: foreign keys and CHECKs swallowed with the removed table, merges that force a partially-participating entity to exist, 1:1s mapped to nothing, double identity columns, dangling generated-column references? | §2.1, §2.2, §2.3, §2.11 and the generated-column row of §3 in [../../ER-MAPPING-AUDIT.md](../../ER-MAPPING-AUDIT.md) |
-| `KProbe` | At a fixed database budget, what does each `--databases-per-graph` value reach — distinct graph schemas, distinct ER diagrams, distinct coarse ER feature vectors, distinct relational schemas, repeat rate — with and without `--reroll-instance`? | §5.1 of [../../ACCEPTANCE-EXPANSION.md](../../ACCEPTANCE-EXPANSION.md) (the cost curve behind the default of 8) |
+| `KProbe` | At a fixed database budget, what does each `--databases-per-graph` value reach — distinct graph schemas, distinct ER diagrams, distinct coarse ER feature vectors, distinct relational schemas, repeat rate — with and without `--reroll-instance`? | the cost curve behind the default of 8 (11 % repeated ER diagrams at K = 8, 21 % at 16) |
+| `EngineTypeProbe` | Which column types can SQLite, H2 and DuckDB index, put in a `UNIQUE` constraint or use as a primary key — and which array literal syntax does each accept? | the trait table in `EngineTraits.canIndex` (DuckDB refuses every key or index over an `ARRAY` column, H2 accepts one), the array rendering in the dialects, and `ER-GAPS.md` A20 |
 
 ## Interpreting the output
 

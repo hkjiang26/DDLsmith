@@ -28,10 +28,18 @@ is a feature the oracles can never test.
 
 Where a cell is a gap, the bracketed id points at the entry in [ER-GAPS.md](ER-GAPS.md).
 
+**The "Seen" column** counts what the standard 1 200-diagram census (6 generators × 200 seeds) of the
+*pre-filling* build produced. The rows the filling round changed carry the new numbers
+(`RandomGraphFiller` decides the attributes per database now); the counts of
+the rows that only the attribute layout influences (relationship types, cardinality ratios,
+participation) are the earlier census and are within a few per cent of the current one.
+
 * `ermodel/` — the ER model classes (`ERDiagram`, `EREntity`, `ERRelationship`, `ERParticipant`,
   `ERAttribute`, `Cardinality`, `Participation`).
 * `graph/gen/DefaultGraphToERMapper` — the graph → ER interpretation, i.e. which ER feature each
   graph pattern becomes.
+* `graph/gen/RandomGraphFiller` — which attributes, domains, keys and inheritance links a database
+  gets, i.e. the half of the interpretation that is not structural.
 * `mapping/impl/StandardERToRelationalMapper` — the ER → relational mapping (the classic
   Elmasri/Navathe algorithm with randomized alternatives).
 * `graph/gen/SelfCheck` and `mapping/impl/SelfCheck` — the executable checks that every feature
@@ -62,11 +70,11 @@ class can hold it. The *seen* column gives the observed frequency over 1 800 dia
 
 | Feature | Standard meaning | Model | Reachable from a graph | Mapping | Seen |
 | ------- | ---------------- | ----- | ---------------------- | ------- | ---- |
-| Simple (atomic) attribute | one value per instance | `ERAttribute` | yes — one attribute per property slot | one column | always |
-| Optional / null-capable attribute | may be absent | `ERAttribute.isOptional()` | yes — a slot with presence < 1.0 | nullable column | 14 424 |
-| Key attribute | identifies instances | `isPrimaryKey()` | yes — a mandatory slot, or two of them | primary key (natural key strategy) | always |
-| Composite (multi-attribute) natural key | the key is a *set* of attributes | several `isPrimaryKey()` attributes | yes — probability 0.3 when a label has ≥ 2 mandatory slots | multi-column primary key | 2 152 |
-| **Several candidate keys** | the ER model underlines *every* key; one becomes the PK, the rest become `UNIQUE` | **no** — a single boolean per attribute [A17] | **no** | only the primary key can be mapped | 0 |
+| Simple (atomic) attribute | one value per instance | `ERAttribute` | yes — one attribute per slot the filling created | one column | always |
+| Optional / null-capable attribute | may be absent | `ERAttribute.isOptional()` | yes — a slot with presence < 1.0 (the mandatory share is drawn per database) | nullable column | 14 424 |
+| Key attribute | identifies instances | `isPrimaryKey()` | yes — the slot the filling marked as the primary key, or two of them | primary key (natural key strategy) | always |
+| Composite (multi-attribute) natural key | the key is a *set* of attributes | several `isPrimaryKey()` attributes | yes — probability 0.3 when the filling drew ≥ 2 mandatory attributes | multi-column primary key | 2 152 |
+| **Several candidate keys** | the ER model underlines *every* key; one becomes the PK, the rest become `UNIQUE` | `isAlternateKey()` / `getAlternateKeyAttributes()` | **yes** — the filling marks one or two further mandatory attributes as an alternate key with probability 0.25, and the mapping emits a `UNIQUE` constraint for it | primary key + `UNIQUE` per alternate key | 944 |
 | Partial key (discriminator) of a weak entity | distinguishes weak instances of one owner | `isPartialKey()` | yes — the synthetic key of a weak label; a second one with probability 0.4 | part of the weak entity's composite key | 62 |
 | Composite partial key | a partial key of several attributes | several `isPartialKey()` | yes, up to **two** attributes [A19] | multi-column discriminator | 20 |
 | Composite attribute | an attribute with components | `isComposite()` + `components` | yes — probability 0.15 (two same-typed attributes) | flattened, recursively, into one column per leaf | 660 |
@@ -82,7 +90,7 @@ class can hold it. The *seen* column gives the observed frequency over 1 800 dia
 | Attribute of a relationship | belongs to the relationship, not to an entity | `ERRelationship.attributes` | yes — the relationship type's property slots (simple only) | column in the table that carries the relationship | 5 899 |
 | Composite attribute of a relationship | a structured association attribute | `ERAttribute` can hold it | **no** [A16] | flattened into the join table (works by hand) | 0 |
 | Attribute inheritance | the subtype carries the inherited attributes | `superEntities` | yes — the subtype keeps only the attributes it **adds**; the inherited ones are read from the supertype chain | every strategy materializes the full set, once per logical attribute | 916 links |
-| Attribute domain | a declared value set | `DataType` | partially — 12 of 20 categories [A20] | rendered per dialect | — |
+| Attribute domain | a declared value set | `DataType` | yes — a per-database pool of the twelve common types plus `TIME`, `TIMESTAMPTZ`, `UUID`, `JSON`, `ENUM` and `ARRAY` (only `REAL`, `BLOB` and `INTERVAL` are never drawn, and a key attribute is restricted to the indexable domains) | rendered per dialect | 7 421 extra-domain |
 | Default value | a declared default for an attribute | — | **no** [A21] | n/a | 0 |
 
 ### 1.3 Relationship types
@@ -111,13 +119,13 @@ class can hold it. The *seen* column gives the observed frequency over 1 800 dia
 
 | Feature | Standard meaning | Model | Reachable from a graph | Mapping | Seen |
 | ------- | ---------------- | ----- | ---------------------- | ------- | ---- |
-| Specialization / generalization | a subtype inherits from a supertype | `superEntities` / `subEntities` | yes — a 1:1 TOTAL link from a label whose slots are a strict superset, probability 0.5 | single table / table per class / table per subclass + FK | 920 links |
-| Multi-level hierarchy | a subtype of a subtype | chained `superEntities` | **no** — every parent is a root label, so the depth is always 1 [A1] | all three strategies handle chains, from hand-built diagrams | 0 |
+| Specialization / generalization | a subtype inherits from a supertype | `superEntities` / `subEntities` | yes — a 1:1 TOTAL link whose from-label the filling made a strict superset of the target, probability 0.5 | single table / table per class / table per subclass + FK | 763 |
+| Multi-level hierarchy | a subtype of a subtype | chained `superEntities` | **yes** — the filling's inheritance plan may let a parent be a child of another label, up to the three levels the mapper recognises | all three strategies handle chains | 22 at depth 2 |
 | Disjoint specialization | an instance belongs to at most one subtype | `isDisjoint()` | yes — drawn at random | single table: one discriminator value per row | 359 |
 | Overlapping specialization | an instance may belong to several subtypes | `isDisjoint() == false` | yes — drawn at random | single table cannot express overlap (see §5.3) | 362 |
 | Total specialization (completeness) | every supertype instance belongs to some subtype | `isTotalSpecialization()` | yes — drawn at random | single table: the discriminator CHECK excludes the root value | 354 |
 | Partial specialization | supertype instances without a subtype are legal | `isTotalSpecialization() == false` | yes | single table: the root value is an allowed discriminator | 367 |
-| Shared subclass / multiple inheritance | a subtype with several supertypes | `superEntities.size() > 1` | yes — a label that inherits slots from two parents, probability 0.45 | single table: the lattice in one table; table per class: union of all ancestors; table per subclass: PK = union of both parents' keys | 15 |
+| Shared subclass / multiple inheritance | a subtype with several supertypes | `superEntities.size() > 1` | yes — the filling may give a label two parents (both candidate links realized), which copies both parents' slots into it | single table: the lattice in one table; table per class: union of all ancestors; table per subclass: PK = union of both parents' keys | 34 |
 | Subtype with 3+ supertypes | a wider lattice | — | **no** — at most two parents [A14] | handles any number | 0 |
 | Subtype that adds no attribute | a pure subset subtype | — | **no** — a strict superset of slots is required [A13] | works by hand | 0 |
 | Predicate-defined specialization | subclasses defined by a condition | `discriminatorAttribute` (name only) | partially — the discriminator *name* is recorded, no predicate [A21] | the mapper ignores it and invents `dtype` [B13] | — |
@@ -153,25 +161,29 @@ attribute defaults · ordered relationships · user-defined domains · entity cl
 
 ## 2. Graph → ER: which pattern becomes which feature
 
-A property graph has only binary edges, so every EER feature is *derived* from a structural pattern
-of the schema and its instance. The mapper is deliberately conservative: a heuristic only fires when
-the graph really shows the pattern. All probabilities are drawn through `Randomly`, so a seed
-reproduces the diagram exactly.
+A base graph (nodes and edges) plus the filling one database gave it have only binary edges, so every
+EER feature is *derived* from a structural pattern of the schema, its instance and that filling. The
+mapper is deliberately conservative: a heuristic only fires when the graph really shows the pattern.
+All probabilities are drawn through `Randomly`, so a seed and a slot reproduce the diagram exactly.
 
 ### 2.1 Entities and plain attributes
 
-* one entity `E<i>` per label `L<i>`, with one attribute `a<j>` per property slot `k<j>`;
-* an attribute is optional when its slot's presence probability is below 1.0;
-* a label without a mandatory slot gets a synthetic key `id` (it may become a partial key, see
-  below);
-* with probability 0.3 a label with ≥ 2 mandatory slots marks two of them as the key together
-  (composite natural key).
+* one entity `E<i>` per label `L<i>`, with one attribute `a<j>` per attribute slot `k<j>` the filling
+  created — the number of slots per label is drawn per database (lean 0..3, normal 2..6, wide 5..12),
+  as is their domains and their presence probabilities;
+* an attribute is optional when its slot's presence probability is below 1.0 (the share of mandatory
+  slots is drawn per database, from 0.25 to 0.85);
+* a label the filling left without a mandatory attribute gets a synthetic key `id` (it may become a
+  partial key, see below);
+* the filling marks the key: one mandatory attribute, or two of them with probability 0.3 (composite
+  natural key), plus — with probability 0.25 — one or two further mandatory attributes as an
+  **alternate key**, which the relational mapping turns into a `UNIQUE` constraint.
 
 ### 2.2 Weak entities
 
 A label becomes a weak entity when **all** of these hold:
 
-1. it has no mandatory slot (its key had to be synthesized);
+1. the filling gave it no mandatory attribute (its key had to be synthesized);
 2. **exactly one** relationship type is incident to it;
 3. that type leaves the label (`from` side), is `ONE` there, and is either `MANY` on the other side
    or TOTAL on the label's side;
@@ -190,24 +202,27 @@ resolves them recursively.
 
 Label `A` becomes a subtype of label `B` when:
 
-* `A`'s property slot keys are a **strict superset** of `B`'s — the schema generator models
-  inheritance by letting a label share the slots of an earlier one, and it gives a label two
-  parents with probability 0.45;
+* `A`'s attribute slots are a **strict superset** of `B`'s — which is exactly how the filling
+  realizes a specialization: for each candidate link (a 1:1 TOTAL relationship type, drawn with
+  probability 0.6, or 0.85 when the child has more than one candidate) it copies the parent's slots
+  into the child and gives the child at least one attribute of its own. Whether a candidate really
+  becomes a link is therefore a per-database decision;
 * a relationship type `A → B` exists with `ONE`/`ONE` cardinality and TOTAL participation on the
   `A` side (the graph image of "every A is a B");
 * the probability draw (0.5) fires;
 * the link does not create a cycle and does not push the hierarchy beyond 3 levels.
 
 A label that takes **two** such links becomes a shared subclass, provided the two supertypes are
-not already ISA-connected (otherwise the second link would be a detour, not a lattice). For each
-specialization, disjointness and completeness (total vs partial) are drawn at random, and the
-discriminator is a random attribute of the supertype.
+not already ISA-connected (otherwise the second link would be a detour, not a lattice); the filling
+enforces that rule when it draws the plan, and it caps a path at the three levels the mapper
+recognises. For each specialization, disjointness and completeness (total vs partial) are drawn at
+random, and the discriminator is a random attribute of the supertype.
 
-**Two caveats.** The parents of an inheriting label are drawn only from labels that did *not*
-inherit, so the hierarchy depth is always exactly 1 and the `MAX_ISA_DEPTH` guard is dead code [A1].
-And because the child copies the parent's slot *keys*, the child entity is built with copies of the
-parent's attributes — `removeInheritedAttributes` deletes them as soon as the ISA link is
-established, so a subtype keeps only what it adds, which is what attribute inheritance means.
+**Two notes.** The filling may let a parent be a child of another label, so the hierarchy depth is no
+longer always 1 — the 1 200-diagram census produces 22 subtypes at depth 2 [A1 closed]. And because
+the child copies the parent's slot *keys*, the child entity is built with copies of the parent's
+attributes — `removeInheritedAttributes` deletes them as soon as the ISA link is established, so a
+subtype keeps only what it adds, which is what attribute inheritance means.
 
 ### 2.4 Union types (categories)
 

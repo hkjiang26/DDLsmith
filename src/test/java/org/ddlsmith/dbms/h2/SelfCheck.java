@@ -57,15 +57,16 @@ import org.ddlsmith.introspection.SchemaNormalizer;
  * End-to-end self-check of the H2 module: connects to an in-memory H2 database, exercises the type
  * mapper, the dialect and the introspector, and reports every divergence.
  *
- * <p>Run with (from the repository root):</p>
+ * <p>Run with (from the repository root; {@code <sep>} is {@code ;} on Windows and {@code :}
+ * elsewhere):</p>
  * <pre>
- * # compile the whole production tree (the H2 module lives inside it)
- * .\compile-subset.ps1 -Path 'src\main\java\org\ddlsmith' -Exclude @('SelfCheck.java') -OutDir 'target\h2-all-classes'
+ * # compile the production tree to target/core-api-classes and write target/cp.txt
+ * mvn -Pcore-api process-classes
  * # compile the H2 test tree against it
- * javac -sourcepath src\test\java -cp "target\h2-all-classes;target\contract-classes;$(cat target/cp.txt)" `
- *       -d target\h2-test-classes src\test\java\org\ddlsmith\dbms\h2\*.java
+ * javac -encoding UTF-8 -cp "target/core-api-classes<sep>$(cat target/cp.txt)" `
+ *       -d target/h2-test-classes src/test/java/org/ddlsmith/dbms/h2/*.java
  * # run the self-check
- * java -cp "target\h2-test-classes;target\h2-all-classes;target\contract-classes;$(cat target/cp.txt)" `
+ * java -cp "target/h2-test-classes<sep>target/core-api-classes<sep>$(cat target/cp.txt)" `
  *      org.ddlsmith.dbms.h2.SelfCheck
  * </pre>
  *
